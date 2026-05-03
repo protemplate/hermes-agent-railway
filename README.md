@@ -9,12 +9,17 @@ This template is designed for a two-service Railway deployment:
 
 ## Features
 
-- Password-protected admin dashboard on Railway's public HTTP domain
-- Setup form for model provider keys, default model, SearXNG URL, and messaging channels
-- Gateway controls for start, stop, restart, and log viewing
-- Persistent Hermes state at `/data`
-- Bundled `searxng-local` skill that teaches Hermes how to call SearXNG's JSON API
-- Health check at `/health`
+All surfaces sit behind one password-protected dashboard on Railway's public HTTP domain:
+
+- **Lite Panel** at `/lite` — gateway status, web-dashboard readiness, channel summary, start/stop/restart controls.
+- **Web Wizard** at `/onboard` — interactive `hermes setup` running in your browser via xterm.js + WebSocket-backed PTY. Default landing page on first run; auto-skipped after completion.
+- **Web TUI** at `/tui` — full `hermes` interactive chat in a browser terminal. Closing the tab kills the session.
+- **Native Hermes Dashboard** at `/hermes/*` — reverse-proxy to the upstream Vite/React dashboard (40+ FastAPI endpoints for sessions, cron, skills, logs).
+- **Setup form** at `/setup` — power-user form to edit individual env/config fields directly.
+- **Logs** at `/logs` — tail of the Hermes gateway log.
+- Bundled `searxng-local` skill teaching Hermes how to call SearXNG's JSON API.
+- Persistent Hermes state at `/data`.
+- Health check at `/health` (reports `gatewayRunning` + `webDashboardReady`).
 
 ## Railway Services
 
@@ -85,11 +90,23 @@ SearXNG can be private-only if Hermes is the only consumer. Keep public HTTP ena
 
 1. Deploy the two-service template.
 2. Open the Hermes Agent public Railway URL.
-3. Log in with `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
-4. Open **Setup** and choose your provider, model, and channel credentials.
-5. Save configuration.
-6. Start the gateway from the dashboard.
-7. Message your configured channel, such as Telegram or Discord.
+3. Log in with `ADMIN_USERNAME` and `ADMIN_PASSWORD`. You land on **Onboard**.
+4. Step through the in-browser `hermes setup` wizard: provider, model, terminal backend, channel credentials, tools.
+5. Once the wizard exits, you are redirected to the **Lite Panel**.
+6. Open **Hermes Dashboard** for full session/cron/skill management, or use **TUI** to chat directly.
+7. From **Lite Panel**, click **Start Gateway** to bring up messaging bridges, then message your configured channel.
+
+## Surfaces
+
+| URL | Purpose |
+| --- | --- |
+| `/lite` | Lite Panel: status, gateway controls, channels, links to other surfaces. |
+| `/onboard` | Web Wizard: in-browser xterm running `hermes setup`. |
+| `/tui` | Web TUI: in-browser xterm running `hermes` interactive chat. |
+| `/hermes/*` | Native Hermes web dashboard, reverse-proxied from the internal `hermes web` server on `127.0.0.1:9119`. |
+| `/setup` | Power-user form for editing env vars and `config.yaml` directly. |
+| `/logs` | Gateway log tail. |
+| `/health` | JSON health probe. |
 
 ## SearXNG Search
 

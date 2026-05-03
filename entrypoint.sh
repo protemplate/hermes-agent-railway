@@ -9,6 +9,7 @@ export PYTHONPATH="/opt/hermes-railway:/opt/hermes:${PYTHONPATH:-}"
 ADMIN_PASSWORD_FILE="${HERMES_HOME}/admin.password"
 
 mkdir -p \
+  "${HERMES_HOME}/.hermes" \
   "${HERMES_HOME}/cron" \
   "${HERMES_HOME}/home" \
   "${HERMES_HOME}/hooks" \

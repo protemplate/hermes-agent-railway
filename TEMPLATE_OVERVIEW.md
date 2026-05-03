@@ -35,15 +35,21 @@ All long-lived Hermes data is stored on the Railway volume at `/data`, including
 
 ### Implementation Details
 
-The Hermes service runs one public web server:
+The Hermes service runs one public web server that unifies several surfaces behind a single password-protected dashboard:
 
 ```text
-User -> Hermes Admin Dashboard ($PORT)
-        |-> /health
-        |-> /setup
-        |-> /logs
-        `-> Gateway controls for hermes gateway run --replace
+User -> Hermes Admin ($PORT)
+        |-> /              (auto-redirect: /onboard on first run, /lite afterwards)
+        |-> /lite          Lite Panel — status + gateway/web readiness + controls
+        |-> /onboard       Web Wizard — xterm.js -> WebSocket -> PTY -> hermes setup
+        |-> /tui           Web TUI    — xterm.js -> WebSocket -> PTY -> hermes (chat)
+        |-> /hermes/*      Reverse proxy to native Hermes web on 127.0.0.1:9119
+        |-> /setup         Power-user form for editing env vars and config.yaml
+        |-> /logs          Tail of the gateway log
+        `-> /health        JSON probe (gatewayRunning, webDashboardReady, ...)
 ```
+
+The native Hermes web server (`python -m hermes_cli.main web --no-open --port 9119`) is started automatically by the Starlette lifespan and respawned with backoff on exit. The gateway (`hermes gateway run --replace`) is started/stopped from the Lite Panel.
 
 The SearXNG service is referenced from Hermes with Railway private networking:
 

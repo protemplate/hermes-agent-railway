@@ -232,6 +232,22 @@ code,
   white-space: pre-wrap;
 }
 
+.terminal-container {
+  background: #05070b;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  height: calc(100vh - 280px);
+  min-height: 24rem;
+  padding: 0.75rem;
+}
+
+.terminal-container .xterm,
+.terminal-container .xterm-viewport,
+.terminal-container .xterm-screen {
+  height: 100% !important;
+  width: 100% !important;
+}
+
 @media (max-width: 820px) {
   .hero {
     align-items: flex-start;

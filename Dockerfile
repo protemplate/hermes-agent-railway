@@ -51,7 +51,8 @@ RUN cd web && npm run build && \
     cd ../ui-tui && npm run build
 
 RUN uv venv && \
-    uv pip install --no-cache-dir -e ".[all]"
+    uv pip install --no-cache-dir -e ".[all]" && \
+    uv pip install --no-cache-dir ptyprocess httpx websockets
 
 RUN chmod -R a+rX /opt/hermes
 
@@ -66,6 +67,7 @@ RUN chmod +x /opt/hermes-railway/entrypoint.sh && \
     chown -R hermes:hermes /data /opt/hermes-railway
 
 EXPOSE 8080
+# Internal port 9119 is used by Hermes's native web dashboard (not exposed by EXPOSE).
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD curl -f "http://localhost:${PORT:-8080}/health" || exit 1

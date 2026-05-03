@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import hmac
 import html
@@ -14,8 +15,12 @@ from urllib.parse import parse_qs
 import yaml
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
-from starlette.routing import Mount, Route
+from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
+
+from . import proxy as hermes_proxy
+from . import supervisor
+from . import terminal as hermes_terminal
 
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/data"))
@@ -109,17 +114,21 @@ async def parse_form(request) -> dict[str, str]:
     return {key: values[-1] if values else "" for key, values in parsed.items()}
 
 
+NAV_HTML = """
+<nav class="nav">
+  <a href="/lite">Lite Panel</a>
+  <a href="/onboard">Onboard</a>
+  <a href="/tui">TUI</a>
+  <a href="/hermes/">Hermes Dashboard</a>
+  <a href="/setup">Setup</a>
+  <a href="/logs">Logs</a>
+  <form method="post" action="/logout"><button class="link-button" type="submit">Log out</button></form>
+</nav>
+"""
+
+
 def render_page(title: str, content: str, *, authed: bool = False, message: str = "") -> HTMLResponse:
-    nav = ""
-    if authed:
-        nav = """
-        <nav class="nav">
-          <a href="/">Dashboard</a>
-          <a href="/setup">Setup</a>
-          <a href="/logs">Logs</a>
-          <form method="post" action="/logout"><button class="link-button" type="submit">Log out</button></form>
-        </nav>
-        """
+    nav = NAV_HTML if authed else ""
 
     template = Template(
         """
@@ -435,6 +444,7 @@ async def health(_request):
         {
             "ok": True,
             "gatewayRunning": gateway_running(),
+            "webDashboardReady": supervisor.web_ready.is_set(),
             "configured": bool(summary["model"]),
             "searxngConfigured": bool(summary["searxng_url"]),
         }
@@ -443,7 +453,7 @@ async def health(_request):
 
 async def login_page(request):
     if is_authenticated(request):
-        return redirect("/")
+        return redirect("/onboard" if not hermes_terminal.is_onboarded() else "/lite")
     message = request.query_params.get("message", "")
     content = """
     <section class="panel narrow">
@@ -460,7 +470,7 @@ async def login_page(request):
 async def login(request):
     form = await parse_form(request)
     if form.get("username") == ADMIN_USERNAME and form.get("password") == ADMIN_PASSWORD:
-        response = redirect("/")
+        response = redirect("/onboard" if not hermes_terminal.is_onboarded() else "/lite")
         response.set_cookie(
             COOKIE_NAME,
             sign_value(ADMIN_USERNAME),
@@ -479,16 +489,27 @@ async def logout(_request):
     return response
 
 
+async def root_redirect(request):
+    if not is_authenticated(request):
+        return redirect("/login")
+    return redirect("/lite" if hermes_terminal.is_onboarded() else "/onboard")
+
+
 async def dashboard(request):
     if not is_authenticated(request):
         return redirect("/login")
     summary = current_summary()
     status = "Running" if gateway_running() else "Stopped"
+    web_status = "Ready" if supervisor.web_ready.is_set() else "Starting"
     content = f"""
     <section class="grid">
       <article class="card">
         <span class="label">Gateway</span>
         <strong>{escape(status)}</strong>
+      </article>
+      <article class="card">
+        <span class="label">Web Dashboard</span>
+        <strong>{escape(web_status)}</strong>
       </article>
       <article class="card">
         <span class="label">Provider</span>
@@ -611,7 +632,41 @@ async def gateway_action(request):
         message = start_gateway()
     else:
         message = "Unknown gateway action."
-    return redirect(f"/?message={message.replace(' ', '%20')}")
+    return redirect(f"/lite?message={message.replace(' ', '%20')}")
+
+
+TERMINAL_TEMPLATE_PATH = Path(__file__).parent / "templates" / "onboard.html"
+
+
+def _render_terminal(title: str, intro: str, ws_path: str) -> HTMLResponse:
+    body = TERMINAL_TEMPLATE_PATH.read_text(encoding="utf-8")
+    body = (
+        body.replace("{{TITLE}}", escape(title))
+        .replace("{{INTRO}}", escape(intro))
+        .replace("{{WS_PATH}}", ws_path)
+        .replace("{{NAV}}", NAV_HTML)
+    )
+    return HTMLResponse(body)
+
+
+async def onboard_page(request):
+    if not is_authenticated(request):
+        return redirect("/login")
+    return _render_terminal(
+        "Hermes Onboarding",
+        "Run the interactive `hermes setup` wizard. Choose a model provider, paste API keys, and configure messaging channels. Completion writes a marker so this page is no longer the default landing page.",
+        "/onboard/ws",
+    )
+
+
+async def tui_page(request):
+    if not is_authenticated(request):
+        return redirect("/login")
+    return _render_terminal(
+        "Hermes TUI",
+        "Interactive terminal session running `hermes`. Use it to chat, run skills, and inspect agent state. Closing the tab terminates the session.",
+        "/tui/ws",
+    )
 
 
 async def logs_page(request):
@@ -630,12 +685,27 @@ async def logs_page(request):
     return render_page("Hermes Logs", content, authed=True)
 
 
+PROXY_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
 routes = [
     Route("/health", health, methods=["GET"]),
     Route("/login", login_page, methods=["GET"]),
     Route("/login", login, methods=["POST"]),
     Route("/logout", logout, methods=["POST"]),
-    Route("/", dashboard, methods=["GET"]),
+    Route("/", root_redirect, methods=["GET"]),
+    Route("/lite", dashboard, methods=["GET"]),
+    Route("/onboard", onboard_page, methods=["GET"]),
+    WebSocketRoute("/onboard/ws", hermes_terminal.onboard_ws),
+    Route("/tui", tui_page, methods=["GET"]),
+    WebSocketRoute("/tui/ws", hermes_terminal.tui_ws),
+    Mount(
+        "/hermes",
+        routes=[
+            WebSocketRoute("/{path:path}", hermes_proxy.ws_proxy),
+            Route("/", hermes_proxy.http_proxy, methods=PROXY_METHODS),
+            Route("/{path:path}", hermes_proxy.http_proxy, methods=PROXY_METHODS),
+        ],
+    ),
     Route("/setup", setup_page, methods=["GET"]),
     Route("/setup", save_setup, methods=["POST"]),
     Route("/gateway/{action}", gateway_action, methods=["POST"]),
@@ -644,4 +714,15 @@ routes = [
 ]
 
 ensure_dirs()
-app = Starlette(debug=False, routes=routes)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    await supervisor.start_web_dashboard()
+    try:
+        yield
+    finally:
+        await supervisor.stop_web_dashboard()
+
+
+app = Starlette(debug=False, routes=routes, lifespan=lifespan)
