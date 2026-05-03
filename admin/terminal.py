@@ -1,12 +1,14 @@
-"""PTY+WebSocket bridge for /auth-cli — runs `hermes login --provider <X> --no-browser`.
+"""PTY+WebSocket bridge for /auth-cli — runs `hermes auth add <X> --type oauth --no-browser`.
 
 Whitelist of allowed providers. Each WebSocket session forks one child in a PTY,
 streams output to the browser as JSON envelopes, accepts input/resize messages.
 On disconnect or child exit, the PTY child is reaped.
 
-The hermes login flow uses OAuth device-code (RFC 8628): the CLI prints
-"Visit URL X, enter code Y", the user opens X in any browser, and the CLI
-polls until authorization completes. No localhost callback required.
+Hermes uses OAuth device-code (RFC 8628) for `openai-codex` and `nous`: the CLI
+prints "Visit URL X, enter code Y", the user opens X in any browser (any device),
+and the CLI polls until authorization completes. No localhost callback required.
+The `--no-browser` flag suppresses the auto-open attempt that would fail in a
+headless container anyway.
 """
 
 from __future__ import annotations
@@ -52,16 +54,21 @@ def _resize(fd: int, cols: int, rows: int) -> None:
 
 async def login_ws(websocket: WebSocket) -> None:
     provider = websocket.path_params.get("provider", "")
-    if provider not in ALLOWED_PROVIDERS:
-        await websocket.close(code=4400)
-        return
 
     if not await _check_auth(websocket):
         await websocket.close(code=4401)
         return
 
+    if provider == "model":
+        # Interactive provider picker — covers all providers including OAuth ones.
+        argv = [HERMES_BIN, "model", "--no-browser"]
+    elif provider in ALLOWED_PROVIDERS:
+        argv = [HERMES_BIN, "auth", "add", provider, "--type", "oauth", "--no-browser"]
+    else:
+        await websocket.close(code=4400)
+        return
+
     await websocket.accept()
-    argv = [HERMES_BIN, "login", "--provider", provider, "--no-browser"]
     await _bridge(websocket, argv)
 
 

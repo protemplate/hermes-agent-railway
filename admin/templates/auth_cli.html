@@ -59,6 +59,7 @@
       <div class="actions">
         <button data-provider="openai-codex">Login with ChatGPT (Codex)</button>
         <button data-provider="nous">Login with Nous Portal</button>
+        <button data-provider="model">Interactive provider picker (`hermes model`)</button>
       </div>
       <div id="term" class="term-box"></div>
       <div id="status" class="status">Pick a provider to begin.</div>
@@ -107,7 +108,10 @@
           ws = new WebSocket(url);
 
           ws.addEventListener('open', () => {
-            term.writeln('\x1b[32m[connected — running hermes login --provider ' + provider + ']\x1b[0m');
+            const cmdLabel = provider === 'model'
+              ? 'hermes model --no-browser'
+              : 'hermes auth add ' + provider + ' --type oauth --no-browser';
+            term.writeln('\x1b[32m[connected — running ' + cmdLabel + ']\x1b[0m');
             sendResize();
             setStatus('Watch the terminal for the verification URL and code.');
           });
