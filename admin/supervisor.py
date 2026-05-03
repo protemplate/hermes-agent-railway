@@ -45,7 +45,7 @@ async def _spawn() -> asyncio.subprocess.Process:
     log.flush()
     return await asyncio.create_subprocess_exec(
         "/opt/hermes/.venv/bin/hermes",
-        "web",
+        "dashboard",
         "--no-open",
         "--host",
         WEB_HOST,
