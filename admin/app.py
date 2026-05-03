@@ -27,14 +27,18 @@ TEMPLATE_PATH = Path(__file__).parent / "templates" / "auth_cli.html"
 
 
 async def _is_authenticated(request: Request) -> bool:
-    """Cheap auth probe: hit hermes-webui's /api/onboarding/status with the user's cookies."""
+    """Cheap auth probe: hit hermes-webui's /api/onboarding/status with the user's cookies.
+
+    First call after boot can be slow (5+s) due to hermes_cli imports inside the
+    webui server. Use a generous timeout — auth checks are infrequent.
+    """
     import httpx
 
     cookie = request.headers.get("cookie", "")
     if not cookie:
         return False
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f"{hermes_proxy.WEBUI_BASE_URL}/api/onboarding/status",
                 headers={"cookie": cookie, "host": f"{hermes_proxy.WEBUI_HOST}:{hermes_proxy.WEBUI_PORT}"},

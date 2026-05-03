@@ -80,7 +80,7 @@ async def _check_auth(websocket: WebSocket) -> bool:
     from . import proxy
 
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f"{proxy.WEBUI_BASE_URL}/api/onboarding/status",
                 headers={"cookie": cookie_header, "host": f"{proxy.WEBUI_HOST}:{proxy.WEBUI_PORT}"},

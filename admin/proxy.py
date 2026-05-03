@@ -53,7 +53,10 @@ DROPPED_REQUEST_HEADERS = HOP_BY_HOP | {
     "via",
 }
 
-DROPPED_RESPONSE_HEADERS = HOP_BY_HOP | {"content-encoding", "content-length"}
+# Keep `content-encoding` so the client knows the body is gzipped; we forward
+# the raw bytes via aiter_raw() and don't re-encode. Drop content-length because
+# StreamingResponse sets `Transfer-Encoding: chunked` which conflicts.
+DROPPED_RESPONSE_HEADERS = HOP_BY_HOP | {"content-length"}
 
 
 _client: httpx.AsyncClient | None = None
