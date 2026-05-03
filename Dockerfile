@@ -57,7 +57,7 @@ RUN git init . && \
     git remote add origin https://github.com/nesquena/hermes-webui.git && \
     (git fetch --depth 1 origin "refs/tags/${HERMES_WEBUI_REF}:refs/tags/${HERMES_WEBUI_REF}" || git fetch --depth 1 origin "${HERMES_WEBUI_REF}") && \
     git checkout --detach FETCH_HEAD && \
-    /opt/hermes/.venv/bin/uv pip install --no-cache-dir -r requirements.txt && \
+    uv pip install --python /opt/hermes/.venv/bin/python --no-cache-dir -r requirements.txt && \
     chmod -R a+rX /opt/hermes-webui
 
 WORKDIR /opt/hermes-railway
