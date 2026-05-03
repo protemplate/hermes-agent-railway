@@ -31,6 +31,27 @@ fi
 # /opt/hermes/cli-config.yaml.example sets model.default and makes the WebUI
 # think provider_configured=true, which skips the wizard entirely.
 
+# One-shot rescue for users upgrading from earlier image versions that pre-seeded
+# config.yaml: that pattern caused hermes-webui to persist onboarding_completed=true
+# in /data/.hermes/webui/settings.json. Without resetting it, the wizard stays
+# hidden even after we drop the seeding. Run only when no real provider key is
+# present in /data/.env.
+WEBUI_SETTINGS="${HERMES_HOME}/.hermes/webui/settings.json"
+if [ -f "${WEBUI_SETTINGS}" ] && [ ! -f "${HERMES_HOME}/.env" ]; then
+  python3 - <<PY || true
+import json, pathlib
+p = pathlib.Path("${WEBUI_SETTINGS}")
+try:
+    s = json.loads(p.read_text())
+except Exception:
+    raise SystemExit(0)
+if s.get("onboarding_completed"):
+    s["onboarding_completed"] = False
+    p.write_text(json.dumps(s, indent=2))
+    print("[entrypoint] reset onboarding_completed (no .env present)")
+PY
+fi
+
 if [ ! -f "${HERMES_HOME}/SOUL.md" ] && [ -f "/opt/hermes/docker/SOUL.md" ]; then
   cp /opt/hermes/docker/SOUL.md "${HERMES_HOME}/SOUL.md"
 fi
