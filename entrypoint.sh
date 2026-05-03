@@ -4,12 +4,13 @@ set -euo pipefail
 export HERMES_HOME="${HERMES_HOME:-/data}"
 export PORT="${PORT:-8080}"
 export PATH="/opt/hermes/.venv/bin:/data/.local/bin:${PATH}"
-export PYTHONPATH="/opt/hermes-railway:/opt/hermes:${PYTHONPATH:-}"
+export PYTHONPATH="/opt/hermes-webui:/opt/hermes:${PYTHONPATH:-}"
 
 ADMIN_PASSWORD_FILE="${HERMES_HOME}/admin.password"
 
 mkdir -p \
   "${HERMES_HOME}/.hermes" \
+  "${HERMES_HOME}/.hermes/webui" \
   "${HERMES_HOME}/cron" \
   "${HERMES_HOME}/home" \
   "${HERMES_HOME}/hooks" \
@@ -59,17 +60,41 @@ PY
     printf '%s\n' "${ADMIN_PASSWORD}" > "${ADMIN_PASSWORD_FILE}"
     chmod 600 "${ADMIN_PASSWORD_FILE}" 2>/dev/null || true
   fi
-  export ADMIN_PASSWORD
   echo ""
-  echo "Hermes Agent admin password was generated automatically."
-  echo "Username: ${ADMIN_USERNAME:-admin}"
+  echo "Hermes WebUI password was generated automatically."
   echo "Password: ${ADMIN_PASSWORD}"
   echo ""
+fi
+export ADMIN_PASSWORD
+
+# hermes-webui reads HERMES_WEBUI_PASSWORD for optional auth
+export HERMES_WEBUI_PASSWORD="${ADMIN_PASSWORD}"
+export HERMES_WEBUI_HOST="0.0.0.0"
+export HERMES_WEBUI_PORT="${PORT}"
+export HERMES_WEBUI_STATE_DIR="${HERMES_HOME}/.hermes/webui"
+
+# Optional: auto-start the messaging gateway daemon (Telegram/Discord/Slack/email).
+# Default off — users typically configure channel tokens via the WebUI Settings
+# panel first, then redeploy with START_GATEWAY=true.
+if [ "${START_GATEWAY:-false}" = "true" ]; then
+  GATEWAY_LOG="${HERMES_HOME}/logs/gateway.log"
+  GATEWAY_PID_FILE="${HERMES_HOME}/gateway.pid"
+  echo "Starting Hermes messaging gateway in background..."
+  printf '\n--- Starting Hermes gateway %s ---\n' "$(date)" >> "${GATEWAY_LOG}"
+  if [ "$(id -u)" = "0" ]; then
+    setsid gosu hermes /opt/hermes/.venv/bin/hermes gateway run --replace \
+      >> "${GATEWAY_LOG}" 2>&1 < /dev/null &
+  else
+    setsid /opt/hermes/.venv/bin/hermes gateway run --replace \
+      >> "${GATEWAY_LOG}" 2>&1 < /dev/null &
+  fi
+  echo $! > "${GATEWAY_PID_FILE}"
+  echo "Gateway PID: $(cat "${GATEWAY_PID_FILE}") (logs at ${GATEWAY_LOG})"
 fi
 
 if [ "$(id -u)" = "0" ]; then
   chown -R hermes:hermes "${HERMES_HOME}" /opt/hermes-railway 2>/dev/null || true
-  exec gosu hermes python -m uvicorn admin.app:app --host 0.0.0.0 --port "${PORT}"
+  exec gosu hermes python3 /opt/hermes-webui/server.py
 fi
 
-exec python -m uvicorn admin.app:app --host 0.0.0.0 --port "${PORT}"
+exec python3 /opt/hermes-webui/server.py

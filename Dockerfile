@@ -1,13 +1,13 @@
 FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie
 
 ARG HERMES_REF=main
+ARG HERMES_WEBUI_REF=v0.50.278
 
 ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright \
     HERMES_HOME=/data \
-    HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist \
     PATH="/opt/hermes/.venv/bin:/data/.local/bin:${PATH}" \
-    PYTHONPATH="/opt/hermes-railway:/opt/hermes"
+    PYTHONPATH="/opt/hermes-railway:/opt/hermes:/opt/hermes-webui"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -43,22 +43,25 @@ ENV npm_config_install_links=false
 
 RUN npm install --prefer-offline --no-audit && \
     npx playwright install --with-deps chromium --only-shell && \
-    (cd web && npm install --prefer-offline --no-audit) && \
-    (cd ui-tui && npm install --prefer-offline --no-audit) && \
     npm cache clean --force
 
-RUN cd web && npm run build && \
-    cd ../ui-tui && npm run build
-
 RUN uv venv && \
-    uv pip install --no-cache-dir -e ".[all]" && \
-    uv pip install --no-cache-dir ptyprocess httpx websockets
+    uv pip install --no-cache-dir -e ".[all]"
 
 RUN chmod -R a+rX /opt/hermes
 
+# Hermes WebUI: pure Python (stdlib + pyyaml) + vanilla JS, served from /opt/hermes-webui
+WORKDIR /opt/hermes-webui
+
+RUN git init . && \
+    git remote add origin https://github.com/nesquena/hermes-webui.git && \
+    (git fetch --depth 1 origin "refs/tags/${HERMES_WEBUI_REF}:refs/tags/${HERMES_WEBUI_REF}" || git fetch --depth 1 origin "${HERMES_WEBUI_REF}") && \
+    git checkout --detach FETCH_HEAD && \
+    /opt/hermes/.venv/bin/uv pip install --no-cache-dir -r requirements.txt && \
+    chmod -R a+rX /opt/hermes-webui
+
 WORKDIR /opt/hermes-railway
 
-COPY admin ./admin
 COPY skills ./skills
 COPY entrypoint.sh ./entrypoint.sh
 
@@ -67,7 +70,6 @@ RUN chmod +x /opt/hermes-railway/entrypoint.sh && \
     chown -R hermes:hermes /data /opt/hermes-railway
 
 EXPOSE 8080
-# Internal port 9119 is used by Hermes's native web dashboard (not exposed by EXPOSE).
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD curl -f "http://localhost:${PORT:-8080}/health" || exit 1

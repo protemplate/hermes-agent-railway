@@ -7,9 +7,11 @@ services:
       - "8080:8080"
     environment:
       PORT: 8080
-      ADMIN_USERNAME: admin
       ADMIN_PASSWORD: changeme
       SEARXNG_URL: http://searxng:8080
+      # Set START_GATEWAY=true to also run `hermes gateway run --replace`
+      # in the background (Telegram/Discord/Slack/email bridges).
+      # START_GATEWAY: "true"
     volumes:
       - hermes-data:/data
     depends_on:
