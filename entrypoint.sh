@@ -72,6 +72,8 @@ export HERMES_WEBUI_PASSWORD="${ADMIN_PASSWORD}"
 export HERMES_WEBUI_HOST="0.0.0.0"
 export HERMES_WEBUI_PORT="${PORT}"
 export HERMES_WEBUI_STATE_DIR="${HERMES_HOME}/.hermes/webui"
+# Point hermes-webui at our Hermes Agent install so agent features work
+export HERMES_WEBUI_AGENT_DIR="/opt/hermes"
 
 # Optional: auto-start the messaging gateway daemon (Telegram/Discord/Slack/email).
 # Default off — users typically configure channel tokens via the WebUI Settings
