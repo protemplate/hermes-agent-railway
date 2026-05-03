@@ -8,6 +8,7 @@ and Via are dropped so the upstream sees a direct local request.
 from __future__ import annotations
 
 import asyncio
+import re
 from urllib.parse import urlencode
 
 import httpx
@@ -107,11 +108,28 @@ async def http_proxy(request: Request) -> Response:
     except httpx.ConnectError:
         return Response("Hermes web dashboard unavailable.", status_code=502, media_type="text/plain")
 
+    # If this is the SPA HTML, inject <base href="/hermes/"> so the SPA's
+    # relative asset URLs resolve under our proxy mount. Absolute paths like
+    # /api/* will still leak; document the limitation in README.
+    content = upstream.content
+    media_type = upstream.headers.get("content-type", "")
+    if "text/html" in media_type:
+        try:
+            text = content.decode("utf-8", errors="replace")
+            if "<base " not in text and "<head" in text:
+                text = text.replace("<head>", '<head><base href="/hermes/">', 1)
+                if "<head>" not in text:
+                    # tolerate <head attr=...>
+                    text = re.sub(r"(<head[^>]*>)", r'\1<base href="/hermes/">', text, count=1)
+                content = text.encode("utf-8")
+        except Exception:
+            pass
+
     return Response(
-        content=upstream.content,
+        content=content,
         status_code=upstream.status_code,
         headers=dict(_filter_response_headers(upstream.headers)),
-        media_type=upstream.headers.get("content-type"),
+        media_type=media_type or None,
     )
 
 
