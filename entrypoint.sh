@@ -26,13 +26,10 @@ if [ "$(id -u)" = "0" ]; then
   chown -R hermes:hermes "${HERMES_HOME}" 2>/dev/null || true
 fi
 
-if [ ! -f "${HERMES_HOME}/.env" ] && [ -f "/opt/hermes/.env.example" ]; then
-  cp /opt/hermes/.env.example "${HERMES_HOME}/.env"
-fi
-
-if [ ! -f "${HERMES_HOME}/config.yaml" ] && [ -f "/opt/hermes/cli-config.yaml.example" ]; then
-  cp /opt/hermes/cli-config.yaml.example "${HERMES_HOME}/config.yaml"
-fi
+# Do NOT pre-seed .env or config.yaml — hermes-webui's first-run wizard creates
+# them when the user picks a provider and enters an API key. Pre-seeding from
+# /opt/hermes/cli-config.yaml.example sets model.default and makes the WebUI
+# think provider_configured=true, which skips the wizard entirely.
 
 if [ ! -f "${HERMES_HOME}/SOUL.md" ] && [ -f "/opt/hermes/docker/SOUL.md" ]; then
   cp /opt/hermes/docker/SOUL.md "${HERMES_HOME}/SOUL.md"
