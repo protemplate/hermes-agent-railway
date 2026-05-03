@@ -19,6 +19,7 @@ A single password-protected web UI on the Railway public domain ([screenshots](h
 - **Persistent state** on the `/data` volume — config, sessions, skills, workspace, WebUI state
 - **Bundled `searxng-local` skill** so Hermes can query the companion SearXNG service
 - **Health check** at `/health` (Railway probe)
+- **OAuth login (`/auth-cli`)** — in-browser xterm running `hermes login --provider <X>` for ChatGPT (Codex) and Nous Portal device-code flows. Useful when you want to use your ChatGPT subscription instead of paying for OpenAI API access.
 
 ## Railway Services
 
@@ -141,12 +142,27 @@ Open `http://localhost:8080` and enter `changeme` at the password prompt.
 ## Operations
 
 - Web UI: `/`
+- OAuth login (Codex, Nous Portal): `/auth-cli`
 - Health check: `/health`
 - Gateway log (when `START_GATEWAY=true`): `/data/logs/gateway.log`
 - Gateway PID file: `/data/gateway.pid`
+- WebUI internal log: `/data/logs/webui.log`
 - WebUI state: `/data/.hermes/webui/`
 - Hermes config: `/data/config.yaml`
 - Hermes env: `/data/.env`
+
+### How `/auth-cli` works
+
+Hermes Agent's OAuth providers (ChatGPT/Codex and Nous Portal) use the **OAuth device-code grant (RFC 8628)**, which doesn't require a localhost callback — perfect for remote deployments. The flow:
+
+1. Visit `/auth-cli` (you must already be logged in to the Hermes WebUI).
+2. Click **Login with ChatGPT (Codex)** or **Login with Nous Portal**.
+3. The in-browser terminal runs `hermes login --provider <X> --no-browser` and prints a verification URL plus a short code.
+4. Open the URL in another tab on any device, sign in to the provider, and enter the code.
+5. The CLI completes the flow, writes credentials to `/data/.hermes/auth.json`, and exits with `Login successful.`
+6. Refresh the WebUI — your provider is now configured.
+
+API-key providers (OpenRouter, OpenAI, Anthropic, Google Gemini, etc.) use the in-wizard form on the WebUI's onboarding page — no need to visit `/auth-cli`.
 
 ## Notes
 

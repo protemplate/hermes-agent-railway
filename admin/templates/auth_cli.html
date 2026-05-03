@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hermes — OAuth Login</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        background: #05070b;
+        color: #eef3ff;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        min-height: 100vh;
+      }
+      .shell { max-width: 1080px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+      h1 { font-size: 1.75rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+      .lead { color: #9aa8bd; margin: 0 0 1.5rem; max-width: 64ch; }
+      .lead a { color: #8be7c7; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; }
+      .actions button {
+        background: #101623;
+        border: 1px solid #243249;
+        color: #eef3ff;
+        border-radius: 0.75rem;
+        padding: 0.7rem 1.05rem;
+        font: inherit; cursor: pointer; font-weight: 600;
+      }
+      .actions button:hover { border-color: #46cfa5; color: #8be7c7; }
+      .actions button[disabled] { opacity: 0.45; cursor: not-allowed; }
+      .term-box {
+        background: #05070b;
+        border: 1px solid #243249;
+        border-radius: 1rem;
+        height: calc(100vh - 280px);
+        min-height: 22rem;
+        padding: 0.75rem;
+      }
+      .term-box .xterm,
+      .term-box .xterm-viewport,
+      .term-box .xterm-screen { height: 100% !important; width: 100% !important; }
+      .status { color: #9aa8bd; font-size: 0.9rem; margin-top: 0.75rem; }
+      .status.success { color: #8be7c7; }
+      .status.error { color: #ff9a9a; }
+      .topnav { font-size: 0.85rem; color: #9aa8bd; margin-bottom: 1rem; }
+      .topnav a { color: #8be7c7; }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <p class="topnav">← <a href="/">Back to Hermes WebUI</a></p>
+      <h1>OAuth login</h1>
+      <p class="lead">
+        Choose a provider to start a device-code login flow. The terminal below
+        will print a URL and a short code &mdash; open the URL in any browser
+        (any device), enter the code, and the login will complete here.
+      </p>
+      <div class="actions">
+        <button data-provider="openai-codex">Login with ChatGPT (Codex)</button>
+        <button data-provider="nous">Login with Nous Portal</button>
+      </div>
+      <div id="term" class="term-box"></div>
+      <div id="status" class="status">Pick a provider to begin.</div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+    <script>
+      (function () {
+        const term = new Terminal({
+          cursorBlink: true,
+          fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
+          fontSize: 13,
+          theme: { background: '#05070b' },
+          convertEol: true,
+        });
+        const fit = new FitAddon.FitAddon();
+        term.loadAddon(fit);
+        term.loadAddon(new WebLinksAddon.WebLinksAddon());
+        const host = document.getElementById('term');
+        const status = document.getElementById('status');
+        term.open(host);
+        try { fit.fit(); } catch (_) {}
+
+        const buttons = Array.from(document.querySelectorAll('button[data-provider]'));
+        let ws = null;
+
+        function setStatus(text, kind) {
+          status.textContent = text;
+          status.className = 'status' + (kind ? ' ' + kind : '');
+        }
+
+        function setButtonsDisabled(disabled) {
+          buttons.forEach(b => b.disabled = disabled);
+        }
+
+        function connect(provider) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          }
+          term.reset();
+          setButtonsDisabled(true);
+          setStatus('Connecting…');
+          const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/auth-cli/ws/' + encodeURIComponent(provider);
+          ws = new WebSocket(url);
+
+          ws.addEventListener('open', () => {
+            term.writeln('\x1b[32m[connected — running hermes login --provider ' + provider + ']\x1b[0m');
+            sendResize();
+            setStatus('Watch the terminal for the verification URL and code.');
+          });
+
+          ws.addEventListener('message', (ev) => {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (msg.type === 'output') term.write(msg.data);
+              else if (msg.type === 'exit') {
+                term.writeln('\r\n\x1b[33m[process exited' + (typeof msg.code === 'number' ? ' code=' + msg.code : '') + ']\x1b[0m');
+                if (msg.code === 0) {
+                  setStatus('Login successful. You can close this tab and refresh the WebUI.', 'success');
+                } else {
+                  setStatus('Login failed (exit code ' + msg.code + ').', 'error');
+                }
+                setButtonsDisabled(false);
+              }
+            } catch (_) { term.write(ev.data); }
+          });
+
+          ws.addEventListener('close', (ev) => {
+            if (ev.code === 4400) setStatus('Unknown provider.', 'error');
+            else if (ev.code === 4401) setStatus('Not authenticated. Please log in to the WebUI first.', 'error');
+            else if (status.textContent === 'Connecting…') setStatus('Connection closed.', 'error');
+            setButtonsDisabled(false);
+          });
+
+          ws.addEventListener('error', () => {
+            setStatus('Connection error.', 'error');
+            setButtonsDisabled(false);
+          });
+        }
+
+        function sendResize() {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
+        }
+
+        term.onData((data) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data }));
+          }
+        });
+
+        const ro = new ResizeObserver(() => {
+          try { fit.fit(); sendResize(); } catch (_) {}
+        });
+        ro.observe(host);
+
+        buttons.forEach(b => b.addEventListener('click', () => connect(b.dataset.provider)));
+      })();
+    </script>
+  </body>
+</html>

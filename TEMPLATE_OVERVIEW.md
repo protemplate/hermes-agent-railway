@@ -35,19 +35,23 @@ An optional `START_GATEWAY=true` environment variable enables the messaging gate
 
 ### Implementation Details
 
-The Hermes service runs one public web server — Hermes WebUI on `$PORT`:
+The Hermes service runs a thin Starlette wrapper on `$PORT`. The wrapper serves `/auth-cli` (an in-browser xterm for `hermes login --provider <X>` device-code flows) and reverse-proxies everything else to Hermes WebUI on the loopback:
 
 ```text
-User -> Hermes WebUI ($PORT)
+User -> Wrapper ($PORT) ──┬── /auth-cli            xterm running `hermes login`
+                          └── /*                   reverse-proxy → 127.0.0.1:9119
+                                                                   (Hermes WebUI)
+
+Hermes WebUI (127.0.0.1:9119)
         |-> /              Three-panel UI (sessions / chat / workspace)
-        |-> /health        Health probe
+        |-> /health        Health probe (Railway uses this through the proxy)
         `-> /api/*         Chat, sessions, settings, cron, skills, profiles, memory APIs
 
 Background (optional, when START_GATEWAY=true):
         hermes gateway run --replace   (Telegram/Discord/Slack/email bridges)
 ```
 
-Both Hermes Agent and Hermes WebUI run inside the same container and share the `/data` volume, so the WebUI reads/writes the same `~/.hermes/` state the Agent uses.
+Both Hermes Agent and Hermes WebUI run inside the same container and share the `/data` volume, so the WebUI reads/writes the same `~/.hermes/` state the Agent uses. Auth on `/auth-cli` reuses the WebUI's `hermes_session` cookie, so users don't have to log in twice.
 
 The SearXNG service is referenced from Hermes with Railway private networking:
 

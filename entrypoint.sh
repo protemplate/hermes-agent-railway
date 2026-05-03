@@ -4,7 +4,7 @@ set -euo pipefail
 export HERMES_HOME="${HERMES_HOME:-/data}"
 export PORT="${PORT:-8080}"
 export PATH="/opt/hermes/.venv/bin:/data/.local/bin:${PATH}"
-export PYTHONPATH="/opt/hermes-webui:/opt/hermes:${PYTHONPATH:-}"
+export PYTHONPATH="/opt/hermes-railway:/opt/hermes-webui:/opt/hermes:${PYTHONPATH:-}"
 
 ADMIN_PASSWORD_FILE="${HERMES_HOME}/admin.password"
 
@@ -85,10 +85,10 @@ PY
 fi
 export ADMIN_PASSWORD
 
-# hermes-webui reads HERMES_WEBUI_PASSWORD for optional auth
+# hermes-webui runs internally on 127.0.0.1:9119; our wrapper proxies $PORT -> 9119.
 export HERMES_WEBUI_PASSWORD="${ADMIN_PASSWORD}"
-export HERMES_WEBUI_HOST="0.0.0.0"
-export HERMES_WEBUI_PORT="${PORT}"
+export HERMES_WEBUI_HOST="127.0.0.1"
+export HERMES_WEBUI_PORT="9119"
 export HERMES_WEBUI_STATE_DIR="${HERMES_HOME}/.hermes/webui"
 # Point hermes-webui at our Hermes Agent install so agent features work
 export HERMES_WEBUI_AGENT_DIR="/opt/hermes"
@@ -112,9 +112,17 @@ if [ "${START_GATEWAY:-false}" = "true" ]; then
   echo "Gateway PID: $(cat "${GATEWAY_PID_FILE}") (logs at ${GATEWAY_LOG})"
 fi
 
+WEBUI_LOG="${HERMES_HOME}/logs/webui.log"
+
 if [ "$(id -u)" = "0" ]; then
   chown -R hermes:hermes "${HERMES_HOME}" /opt/hermes-railway 2>/dev/null || true
-  exec gosu hermes python3 /opt/hermes-webui/server.py
+  printf '\n--- Starting Hermes WebUI on 127.0.0.1:9119 %s ---\n' "$(date)" >> "${WEBUI_LOG}"
+  setsid gosu hermes python3 /opt/hermes-webui/server.py >> "${WEBUI_LOG}" 2>&1 < /dev/null &
+  echo "Hermes WebUI PID: $!  (logs at ${WEBUI_LOG})"
+  exec gosu hermes python3 -m uvicorn admin.app:app --host 0.0.0.0 --port "${PORT}"
 fi
 
-exec python3 /opt/hermes-webui/server.py
+printf '\n--- Starting Hermes WebUI on 127.0.0.1:9119 %s ---\n' "$(date)" >> "${WEBUI_LOG}"
+setsid python3 /opt/hermes-webui/server.py >> "${WEBUI_LOG}" 2>&1 < /dev/null &
+echo "Hermes WebUI PID: $!  (logs at ${WEBUI_LOG})"
+exec python3 -m uvicorn admin.app:app --host 0.0.0.0 --port "${PORT}"
