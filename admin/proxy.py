@@ -16,9 +16,13 @@ HTTP responses are streamed end-to-end (important for SSE chat).
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from pathlib import Path
 
 import httpx
 import websockets
+import yaml
 from starlette.requests import Request
 from starlette.responses import StreamingResponse, Response
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -28,6 +32,39 @@ WEBUI_HOST = "127.0.0.1"
 WEBUI_PORT = 9119
 WEBUI_BASE_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
 WEBUI_WS_BASE = f"ws://{WEBUI_HOST}:{WEBUI_PORT}"
+
+CONFIG_PATH = Path(os.environ.get("HERMES_HOME", "/data")) / "config.yaml"
+_config_provider_cache: tuple[float, str | None] | None = None
+
+
+def _active_provider() -> str | None:
+    """Return model.provider from config.yaml, with mtime-based caching.
+
+    Workaround for hermes-webui upstream bug: when /api/session/new is called
+    with no model_provider, the server stores model_provider=null on the new
+    session even when catalog.active_provider is correctly set. The agent then
+    can't determine credentials at chat-start time. We patch the request body
+    to inject the provider before forwarding.
+    """
+    global _config_provider_cache
+    try:
+        mtime = CONFIG_PATH.stat().st_mtime
+    except OSError:
+        return None
+    if _config_provider_cache and _config_provider_cache[0] == mtime:
+        return _config_provider_cache[1]
+    try:
+        cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    model_cfg = cfg.get("model")
+    provider = (model_cfg or {}).get("provider") if isinstance(model_cfg, dict) else None
+    if isinstance(provider, str):
+        provider = provider.strip() or None
+    else:
+        provider = None
+    _config_provider_cache = (mtime, provider)
+    return provider
 
 
 HOP_BY_HOP = {
@@ -88,6 +125,7 @@ async def _ensure_client() -> httpx.AsyncClient:
 async def http_proxy(request: Request) -> Response:
     raw_path = request.path_params.get("path", "")
     path = "/" + raw_path if not raw_path.startswith("/") else raw_path
+    bare_path = path.split("?", 1)[0]
     if request.url.query:
         path = f"{path}?{request.url.query}"
 
@@ -95,6 +133,24 @@ async def http_proxy(request: Request) -> Response:
     upstream_headers = _filter_request_headers(request.headers)
 
     body = await request.body()
+
+    # Workaround for upstream hermes-webui: new sessions are persisted with
+    # model_provider=null even when catalog.active_provider is set. Inject
+    # model_provider from /data/config.yaml when the client doesn't supply one.
+    if request.method == "POST" and bare_path == "/api/session/new":
+        provider = _active_provider()
+        if provider:
+            try:
+                payload = json.loads(body) if body else {}
+                if isinstance(payload, dict) and not (payload.get("model_provider") or "").strip():
+                    payload["model_provider"] = provider
+                    body = json.dumps(payload).encode("utf-8")
+                    upstream_headers = {
+                        k: v for k, v in upstream_headers.items() if k.lower() != "content-length"
+                    }
+                    upstream_headers["content-type"] = "application/json"
+            except (json.JSONDecodeError, AttributeError, UnicodeDecodeError):
+                pass
 
     try:
         req = client.build_request(
