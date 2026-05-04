@@ -97,6 +97,134 @@ async def _check_auth(websocket: WebSocket) -> bool:
         return False
 
 
+_PROVIDER_BASE = {
+    "openai-codex": "https://chatgpt.com/backend-api/codex",
+    "nous": "https://inference-api.nousresearch.com/v1",
+}
+
+
+def _post_auth_heal_and_restart() -> str:
+    """After a successful auth/model command, normalize state and restart hermes-webui.
+
+    1. If config.yaml lacks model.provider but auth.json has a known OAuth credential,
+       set model.provider + base_url so the agent can find credentials.
+    2. Backfill stale `model: <other-provider>/<x>` and missing model_provider on
+       webui sessions (and the _index.json cache).
+    3. Delete the catalog cache file so the next webui process rebuilds fresh.
+    4. SIGTERM hermes-webui — entrypoint's watchdog respawns it.
+
+    Returns a short human-readable status line for the xterm.
+    """
+    import json
+    import signal as _sig
+    import subprocess as _sp
+
+    try:
+        import yaml
+    except Exception as exc:
+        return f"heal skipped (no yaml): {exc!r}"
+
+    notes: list[str] = []
+    home = HERMES_HOME
+
+    # 1. Heal config.yaml
+    auth_p = home / "auth.json"
+    cfg_p = home / "config.yaml"
+    chosen_provider: str | None = None
+    if auth_p.exists() and cfg_p.exists():
+        try:
+            auth = json.loads(auth_p.read_text(encoding="utf-8")) or {}
+            cfg = yaml.safe_load(cfg_p.read_text(encoding="utf-8")) or {}
+            providers = (auth.get("providers") or {}) if isinstance(auth.get("providers"), dict) else {}
+            authed = [p for p in providers.keys() if p in _PROVIDER_BASE]
+            model_cfg = cfg.get("model")
+            if isinstance(model_cfg, dict) and authed:
+                if not model_cfg.get("provider"):
+                    chosen_provider = authed[0]
+                    model_cfg["provider"] = chosen_provider
+                    if not model_cfg.get("base_url"):
+                        model_cfg["base_url"] = _PROVIDER_BASE[chosen_provider]
+                    cfg["model"] = model_cfg
+                    yaml.safe_dump(cfg, cfg_p.open("w", encoding="utf-8"), sort_keys=False)
+                    notes.append(f"set model.provider={chosen_provider}")
+                else:
+                    chosen_provider = model_cfg["provider"]
+        except Exception as exc:
+            notes.append(f"config heal failed: {exc!r}")
+
+    # 2. Backfill stale session models
+    if chosen_provider:
+        try:
+            cfg_now = yaml.safe_load(cfg_p.read_text(encoding="utf-8")) or {}
+            mc = cfg_now.get("model") or {}
+            default_model = (mc.get("default") or "").strip()
+            default_provider = (mc.get("provider") or "").strip()
+            if default_model and default_provider:
+                sessions_dir = home / ".hermes" / "webui" / "sessions"
+                patched = 0
+                if sessions_dir.exists():
+                    for sf in sessions_dir.glob("*.json"):
+                        if sf.name == "_index.json":
+                            continue
+                        try:
+                            s = json.loads(sf.read_text(encoding="utf-8"))
+                        except Exception:
+                            continue
+                        if not isinstance(s, dict):
+                            continue
+                        m = s.get("model") or ""
+                        if not s.get("model_provider") or ("/" in m and not m.startswith(default_provider + "/")):
+                            s["model"] = default_model
+                            s["model_provider"] = default_provider
+                            sf.write_text(json.dumps(s), encoding="utf-8")
+                            patched += 1
+                idx_p = sessions_dir / "_index.json"
+                if idx_p.exists():
+                    try:
+                        idx = json.loads(idx_p.read_text(encoding="utf-8"))
+                        for e in idx if isinstance(idx, list) else []:
+                            if not isinstance(e, dict):
+                                continue
+                            m = e.get("model") or ""
+                            if not e.get("model_provider") or ("/" in m and not m.startswith(default_provider + "/")):
+                                e["model"] = default_model
+                                e["model_provider"] = default_provider
+                        idx_p.write_text(json.dumps(idx), encoding="utf-8")
+                    except Exception:
+                        pass
+                if patched:
+                    notes.append(f"backfilled {patched} sessions")
+        except Exception as exc:
+            notes.append(f"session heal failed: {exc!r}")
+
+    # 3. Wipe catalog cache
+    cache_p = home / ".hermes" / "webui" / "models_cache.json"
+    try:
+        if cache_p.exists():
+            cache_p.unlink()
+            notes.append("wiped catalog cache")
+    except OSError:
+        pass
+
+    # 4. Restart webui — entrypoint's watchdog respawns it.
+    pid_p = home / ".hermes" / "webui" / "server.pid"
+    try:
+        pid_text = pid_p.read_text(encoding="utf-8").strip() if pid_p.exists() else ""
+        pid = int(pid_text) if pid_text else 0
+        if pid > 0:
+            os.kill(pid, _sig.SIGTERM)
+            notes.append(f"sent SIGTERM to webui pid {pid}")
+    except (OSError, ValueError):
+        # Fallback: pkill by command line
+        try:
+            _sp.run(["pkill", "-TERM", "-f", "/opt/hermes-webui/server.py"], check=False)
+            notes.append("sent pkill -TERM to webui")
+        except Exception:
+            pass
+
+    return "; ".join(notes) if notes else "no-op (nothing to heal)"
+
+
 async def _bridge(ws: WebSocket, argv: list[str]) -> None:
     from ptyprocess import PtyProcessUnicode  # type: ignore
 
@@ -190,8 +318,19 @@ async def _bridge(ws: WebSocket, argv: list[str]) -> None:
             if not task.done():
                 task.cancel()
 
+        # On clean exit, normalize state and trigger a webui restart so the
+        # user sees a fresh catalog/sessions on the next page load.
+        heal_note = ""
+        if exit_code == 0:
+            try:
+                heal_note = await asyncio.get_running_loop().run_in_executor(
+                    None, _post_auth_heal_and_restart
+                )
+            except Exception as exc:
+                heal_note = f"heal raised: {exc!r}"
+
         try:
-            await ws.send_text(json.dumps({"type": "exit", "code": exit_code}))
+            await ws.send_text(json.dumps({"type": "exit", "code": exit_code, "heal": heal_note}))
         except (WebSocketDisconnect, RuntimeError):
             pass
 

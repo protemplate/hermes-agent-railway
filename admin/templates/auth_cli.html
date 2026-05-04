@@ -122,10 +122,16 @@
               if (msg.type === 'output') term.write(msg.data);
               else if (msg.type === 'exit') {
                 term.writeln('\r\n\x1b[33m[process exited' + (typeof msg.code === 'number' ? ' code=' + msg.code : '') + ']\x1b[0m');
+                if (msg.heal) {
+                  term.writeln('\x1b[36m[' + msg.heal + ']\x1b[0m');
+                }
                 if (msg.code === 0) {
-                  setStatus('Login successful. You can close this tab and refresh the WebUI.', 'success');
+                  setStatus('Setup complete. Reloading WebUI in 8s — you can also close this tab and refresh manually.', 'success');
+                  setTimeout(function () {
+                    window.location.href = '/';
+                  }, 8000);
                 } else {
-                  setStatus('Login failed (exit code ' + msg.code + ').', 'error');
+                  setStatus('Failed (exit code ' + msg.code + ').', 'error');
                 }
                 setButtonsDisabled(false);
               }
