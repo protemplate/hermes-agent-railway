@@ -227,19 +227,24 @@ mkdir -p "$(dirname "${WEBUI_PID_FILE}")"
 # Respawn watchdog: keeps hermes-webui alive. Lets /auth-cli kill it after a
 # successful auth/model command so the user gets a fresh process (with
 # refreshed catalog/session cache) without needing a full container restart.
+# Don't use setsid — it detaches the child so `wait $!` can't track it,
+# turning the loop into a tight respawn that breaks within a few iterations.
 start_webui_watchdog() {
   local AS_USER=$1
+  set +e
   while true; do
     printf '\n--- Starting Hermes WebUI on 127.0.0.1:9119 %s ---\n' "$(date)" >> "${WEBUI_LOG}"
     if [ -n "${AS_USER}" ]; then
-      setsid gosu "${AS_USER}" python3 /opt/hermes-webui/server.py >> "${WEBUI_LOG}" 2>&1 < /dev/null &
+      gosu "${AS_USER}" python3 /opt/hermes-webui/server.py >> "${WEBUI_LOG}" 2>&1 < /dev/null &
     else
-      setsid python3 /opt/hermes-webui/server.py >> "${WEBUI_LOG}" 2>&1 < /dev/null &
+      python3 /opt/hermes-webui/server.py >> "${WEBUI_LOG}" 2>&1 < /dev/null &
     fi
-    echo $! > "${WEBUI_PID_FILE}"
-    echo "Hermes WebUI PID: $(cat "${WEBUI_PID_FILE}")  (logs at ${WEBUI_LOG})"
-    wait "$(cat "${WEBUI_PID_FILE}")" 2>/dev/null
-    echo "[entrypoint] Hermes WebUI exited; respawning in 2s"
+    local PID=$!
+    echo "${PID}" > "${WEBUI_PID_FILE}"
+    echo "Hermes WebUI PID: ${PID}  (logs at ${WEBUI_LOG})"
+    wait "${PID}"
+    local RC=$?
+    echo "[entrypoint] Hermes WebUI (pid ${PID}) exited with code ${RC}; respawning in 2s" >> "${WEBUI_LOG}"
     rm -f "${WEBUI_PID_FILE}"
     # Wipe the catalog cache before respawning so the new process picks up
     # any config.yaml / auth.json changes that triggered the restart.
