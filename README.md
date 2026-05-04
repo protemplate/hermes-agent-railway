@@ -19,7 +19,7 @@ A single password-protected web UI on the Railway public domain ([screenshots](h
 - **Persistent state** on the `/data` volume — config, sessions, skills, workspace, WebUI state
 - **Bundled `searxng-local` skill** so Hermes can query the companion SearXNG service
 - **Health check** at `/health` (Railway probe)
-- **OAuth login (`/auth-cli`)** — in-browser xterm running `hermes login --provider <X>` for ChatGPT (Codex) and Nous Portal device-code flows. Useful when you want to use your ChatGPT subscription instead of paying for OpenAI API access.
+- **OAuth login (`/auth-cli`)** — in-browser xterm running `hermes auth add <provider> --type oauth` for ChatGPT (Codex) and Nous Portal device-code flows. Useful when you want to use your ChatGPT subscription instead of paying for OpenAI API access. New sessions automatically inherit the provider you configured (workaround for an upstream hermes-webui bug — see `admin/proxy.py:_active_provider`).
 
 ## Railway Services
 
