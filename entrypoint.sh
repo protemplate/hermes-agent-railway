@@ -56,6 +56,13 @@ if [ ! -f "${HERMES_HOME}/SOUL.md" ] && [ -f "/opt/hermes/docker/SOUL.md" ]; the
   cp /opt/hermes/docker/SOUL.md "${HERMES_HOME}/SOUL.md"
 fi
 
+# Self-heal: hermes-webui caches its model catalog at this path for 24 hours.
+# If config.yaml changed externally (e.g. user ran `hermes model` after first
+# boot), the cache stays stale and /api/models returns active_provider=None
+# until the cache TTL expires. Wipe at boot so the catalog rebuilds fresh
+# against the current config.yaml + auth.json.
+rm -f "${HERMES_HOME}/.hermes/webui/models_cache.json" 2>/dev/null || true
+
 # Self-heal: when auth.json has an OAuth credential but config.yaml lacks
 # model.provider, the agent fails to determine credentials. The Hermes CLI's
 # `hermes model` picker doesn't always set model.provider when an OAuth-already-
@@ -99,6 +106,61 @@ if not model_cfg.get("base_url"):
 cfg["model"] = model_cfg
 yaml.safe_dump(cfg, cfg_p.open("w"), sort_keys=False)
 print(f"[entrypoint] healed config.yaml: model.provider={chosen}")
+PY
+fi
+
+# Self-heal: backfill stale `model: <other-provider>/<name>` and missing
+# model_provider on existing webui sessions, so users don't hit "No LLM
+# provider configured" when reopening sessions created before they configured
+# the active provider.
+SESSIONS_DIR="${HERMES_HOME}/.hermes/webui/sessions"
+if [ -d "${SESSIONS_DIR}" ] && [ -f "${HERMES_HOME}/config.yaml" ]; then
+  python3 - <<PY || true
+import json, glob, os, pathlib
+import yaml
+cfg = yaml.safe_load(pathlib.Path("${HERMES_HOME}/config.yaml").read_text()) or {}
+model_cfg = cfg.get("model") or {}
+default_model = (model_cfg.get("default") or "").strip()
+default_provider = (model_cfg.get("provider") or "").strip()
+if not (default_model and default_provider):
+    raise SystemExit(0)
+
+patched = 0
+for p in glob.glob("${SESSIONS_DIR}/*.json"):
+    try:
+        s = json.loads(open(p).read())
+    except Exception:
+        continue
+    if not isinstance(s, dict):
+        continue
+    m = s.get("model") or ""
+    needs_fix = (
+        not s.get("model_provider")
+        or ("/" in m and not m.startswith(default_provider + "/"))
+    )
+    if needs_fix:
+        s["model"] = default_model
+        s["model_provider"] = default_provider
+        json.dump(s, open(p, "w"))
+        patched += 1
+
+idx_p = pathlib.Path("${SESSIONS_DIR}/_index.json")
+if idx_p.exists():
+    try:
+        idx = json.loads(idx_p.read_text())
+        idx_patched = 0
+        for e in idx:
+            if not isinstance(e, dict):
+                continue
+            m = e.get("model") or ""
+            if not e.get("model_provider") or ("/" in m and not m.startswith(default_provider + "/")):
+                e["model"] = default_model
+                e["model_provider"] = default_provider
+                idx_patched += 1
+        idx_p.write_text(json.dumps(idx))
+        print(f"[entrypoint] backfilled {patched} sessions, {idx_patched} index entries")
+    except Exception:
+        pass
 PY
 fi
 
