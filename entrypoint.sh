@@ -64,26 +64,30 @@ fi
 rm -f "${HERMES_HOME}/.hermes/webui/models_cache.json" 2>/dev/null || true
 
 # Self-heal: when auth.json has an OAuth credential but config.yaml lacks
-# model.provider, the agent fails to determine credentials. The Hermes CLI's
-# `hermes model` picker doesn't always set model.provider when an OAuth-already-
-# authenticated provider is selected; this normalizes the state at boot so
-# users don't hit "No LLM provider configured" after running the picker.
-if [ -f "${HERMES_HOME}/auth.json" ] && [ -f "${HERMES_HOME}/config.yaml" ]; then
+# model.provider (or is missing entirely), the agent fails to determine
+# credentials. The Hermes CLI's `hermes model` picker doesn't always set
+# model.provider when an OAuth-already-authenticated provider is selected,
+# AND `hermes auth add <provider>` doesn't write config.yaml at all.
+# This normalizes the state at boot so users don't hit
+# "No LLM provider configured" after running either flow.
+if [ -f "${HERMES_HOME}/auth.json" ]; then
   python3 - <<PY || true
 import json, sys, pathlib
 import yaml
 auth_p = pathlib.Path("${HERMES_HOME}/auth.json")
 cfg_p = pathlib.Path("${HERMES_HOME}/config.yaml")
 
-# Map of provider -> base_url for OAuth providers we can self-heal.
 PROVIDER_BASE = {
     "openai-codex": "https://chatgpt.com/backend-api/codex",
     "nous": "https://inference-api.nousresearch.com/v1",
 }
+PROVIDER_DEFAULT_MODEL = {
+    "openai-codex": "gpt-5.5",
+    "nous": "Hermes-3-Llama-3.1-70B-FP8",
+}
 
 try:
     auth = json.loads(auth_p.read_text())
-    cfg = yaml.safe_load(cfg_p.read_text()) or {}
 except Exception:
     sys.exit(0)
 
@@ -92,20 +96,29 @@ authed = [p for p in providers.keys() if p in PROVIDER_BASE]
 if not authed:
     sys.exit(0)
 
+if cfg_p.exists():
+    try:
+        cfg = yaml.safe_load(cfg_p.read_text()) or {}
+    except Exception:
+        cfg = {}
+else:
+    cfg = {}
+
 model_cfg = cfg.get("model")
 if not isinstance(model_cfg, dict):
-    sys.exit(0)
+    model_cfg = {}
 if model_cfg.get("provider"):
     sys.exit(0)
 
-# Pick the first OAuth provider we recognize.
 chosen = authed[0]
 model_cfg["provider"] = chosen
 if not model_cfg.get("base_url"):
     model_cfg["base_url"] = PROVIDER_BASE[chosen]
+if not model_cfg.get("default") and chosen in PROVIDER_DEFAULT_MODEL:
+    model_cfg["default"] = PROVIDER_DEFAULT_MODEL[chosen]
 cfg["model"] = model_cfg
 yaml.safe_dump(cfg, cfg_p.open("w"), sort_keys=False)
-print(f"[entrypoint] healed config.yaml: model.provider={chosen}")
+print(f"[entrypoint] wrote config.yaml: model.provider={chosen}, default={model_cfg.get('default')!r}")
 PY
 fi
 

@@ -102,6 +102,15 @@ _PROVIDER_BASE = {
     "nous": "https://inference-api.nousresearch.com/v1",
 }
 
+# Sensible default model per OAuth provider, used when we have to create
+# config.yaml from scratch (after a Codex/Nous login on a fresh deploy where
+# `hermes model` was never run). Picked to match the catalog's default and
+# common Nous Portal subscription tiers.
+_PROVIDER_DEFAULT_MODEL = {
+    "openai-codex": "gpt-5.5",
+    "nous": "Hermes-3-Llama-3.1-70B-FP8",
+}
+
 
 def _post_auth_heal_and_restart() -> str:
     """After a successful auth/model command, normalize state and restart hermes-webui.
@@ -127,26 +136,33 @@ def _post_auth_heal_and_restart() -> str:
     notes: list[str] = []
     home = HERMES_HOME
 
-    # 1. Heal config.yaml
+    # 1. Heal config.yaml — CREATE it if missing, or fill in missing model.provider
     auth_p = home / "auth.json"
     cfg_p = home / "config.yaml"
     chosen_provider: str | None = None
-    if auth_p.exists() and cfg_p.exists():
+    if auth_p.exists():
         try:
             auth = json.loads(auth_p.read_text(encoding="utf-8")) or {}
-            cfg = yaml.safe_load(cfg_p.read_text(encoding="utf-8")) or {}
             providers = (auth.get("providers") or {}) if isinstance(auth.get("providers"), dict) else {}
             authed = [p for p in providers.keys() if p in _PROVIDER_BASE]
-            model_cfg = cfg.get("model")
-            if isinstance(model_cfg, dict) and authed:
+            if authed:
+                if cfg_p.exists():
+                    cfg = yaml.safe_load(cfg_p.read_text(encoding="utf-8")) or {}
+                else:
+                    cfg = {}
+                model_cfg = cfg.get("model")
+                if not isinstance(model_cfg, dict):
+                    model_cfg = {}
                 if not model_cfg.get("provider"):
                     chosen_provider = authed[0]
                     model_cfg["provider"] = chosen_provider
                     if not model_cfg.get("base_url"):
                         model_cfg["base_url"] = _PROVIDER_BASE[chosen_provider]
+                    if not model_cfg.get("default") and chosen_provider in _PROVIDER_DEFAULT_MODEL:
+                        model_cfg["default"] = _PROVIDER_DEFAULT_MODEL[chosen_provider]
                     cfg["model"] = model_cfg
                     yaml.safe_dump(cfg, cfg_p.open("w", encoding="utf-8"), sort_keys=False)
-                    notes.append(f"set model.provider={chosen_provider}")
+                    notes.append(f"wrote config.yaml: model.provider={chosen_provider}, default={model_cfg.get('default')!r}")
                 else:
                     chosen_provider = model_cfg["provider"]
         except Exception as exc:
