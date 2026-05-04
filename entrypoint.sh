@@ -56,6 +56,52 @@ if [ ! -f "${HERMES_HOME}/SOUL.md" ] && [ -f "/opt/hermes/docker/SOUL.md" ]; the
   cp /opt/hermes/docker/SOUL.md "${HERMES_HOME}/SOUL.md"
 fi
 
+# Self-heal: when auth.json has an OAuth credential but config.yaml lacks
+# model.provider, the agent fails to determine credentials. The Hermes CLI's
+# `hermes model` picker doesn't always set model.provider when an OAuth-already-
+# authenticated provider is selected; this normalizes the state at boot so
+# users don't hit "No LLM provider configured" after running the picker.
+if [ -f "${HERMES_HOME}/auth.json" ] && [ -f "${HERMES_HOME}/config.yaml" ]; then
+  python3 - <<PY || true
+import json, sys, pathlib
+import yaml
+auth_p = pathlib.Path("${HERMES_HOME}/auth.json")
+cfg_p = pathlib.Path("${HERMES_HOME}/config.yaml")
+
+# Map of provider -> base_url for OAuth providers we can self-heal.
+PROVIDER_BASE = {
+    "openai-codex": "https://chatgpt.com/backend-api/codex",
+    "nous": "https://inference-api.nousresearch.com/v1",
+}
+
+try:
+    auth = json.loads(auth_p.read_text())
+    cfg = yaml.safe_load(cfg_p.read_text()) or {}
+except Exception:
+    sys.exit(0)
+
+providers = (auth or {}).get("providers", {})
+authed = [p for p in providers.keys() if p in PROVIDER_BASE]
+if not authed:
+    sys.exit(0)
+
+model_cfg = cfg.get("model")
+if not isinstance(model_cfg, dict):
+    sys.exit(0)
+if model_cfg.get("provider"):
+    sys.exit(0)
+
+# Pick the first OAuth provider we recognize.
+chosen = authed[0]
+model_cfg["provider"] = chosen
+if not model_cfg.get("base_url"):
+    model_cfg["base_url"] = PROVIDER_BASE[chosen]
+cfg["model"] = model_cfg
+yaml.safe_dump(cfg, cfg_p.open("w"), sort_keys=False)
+print(f"[entrypoint] healed config.yaml: model.provider={chosen}")
+PY
+fi
+
 if [ -d "/opt/hermes-railway/skills" ]; then
   for skill_dir in /opt/hermes-railway/skills/*/; do
     [ -d "${skill_dir}" ] || continue
