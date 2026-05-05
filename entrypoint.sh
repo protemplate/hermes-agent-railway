@@ -34,21 +34,46 @@ fi
 # One-shot rescue for users upgrading from earlier image versions that pre-seeded
 # config.yaml: that pattern caused hermes-webui to persist onboarding_completed=true
 # in /data/.hermes/webui/settings.json. Without resetting it, the wizard stays
-# hidden even after we drop the seeding. Run only when no real provider key is
-# present in /data/.env.
+# hidden even after we drop the seeding. Skip the reset when the user has a
+# legitimate setup — either an .env (API-key providers) OR an OAuth credential
+# in auth.json paired with model.provider in config.yaml (Codex/Nous flows).
 WEBUI_SETTINGS="${HERMES_HOME}/.hermes/webui/settings.json"
 if [ -f "${WEBUI_SETTINGS}" ] && [ ! -f "${HERMES_HOME}/.env" ]; then
   python3 - <<PY || true
 import json, pathlib
+import yaml
+
 p = pathlib.Path("${WEBUI_SETTINGS}")
 try:
     s = json.loads(p.read_text())
 except Exception:
     raise SystemExit(0)
-if s.get("onboarding_completed"):
-    s["onboarding_completed"] = False
-    p.write_text(json.dumps(s, indent=2))
-    print("[entrypoint] reset onboarding_completed (no .env present)")
+if not s.get("onboarding_completed"):
+    raise SystemExit(0)
+
+# OAuth-configured? Skip the reset.
+auth_p = pathlib.Path("${HERMES_HOME}/auth.json")
+cfg_p = pathlib.Path("${HERMES_HOME}/config.yaml")
+oauth_ok = False
+try:
+    if auth_p.exists() and cfg_p.exists():
+        auth = json.loads(auth_p.read_text()) or {}
+        providers = (auth.get("providers") or {}) if isinstance(auth.get("providers"), dict) else {}
+        cfg = yaml.safe_load(cfg_p.read_text()) or {}
+        mc = cfg.get("model") or {}
+        prov = (mc.get("provider") or "").strip()
+        if prov and prov in providers:
+            oauth_ok = True
+except Exception:
+    pass
+
+if oauth_ok:
+    print("[entrypoint] keeping onboarding_completed=true (OAuth provider configured)")
+    raise SystemExit(0)
+
+s["onboarding_completed"] = False
+p.write_text(json.dumps(s, indent=2))
+print("[entrypoint] reset onboarding_completed (no .env, no OAuth)")
 PY
 fi
 

@@ -222,6 +222,29 @@ def _post_auth_heal_and_restart() -> str:
     except OSError:
         pass
 
+    # 3b. Mark onboarding complete in webui settings.json. Upstream auto-completes
+    # only when chat_ready (which requires hermes-agent imports to succeed), but
+    # right after our SIGTERM+respawn the new process is mid-import and the auto-
+    # complete path doesn't fire — so the wizard reappears on first page load.
+    # Setting the flag explicitly bypasses that race; load_settings() merges
+    # defaults so a minimal {"onboarding_completed": true} file is valid.
+    if chosen_provider:
+        settings_p = home / ".hermes" / "webui" / "settings.json"
+        try:
+            settings_p.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                cur = json.loads(settings_p.read_text(encoding="utf-8")) if settings_p.exists() else {}
+                if not isinstance(cur, dict):
+                    cur = {}
+            except Exception:
+                cur = {}
+            if not cur.get("onboarding_completed"):
+                cur["onboarding_completed"] = True
+                settings_p.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+                notes.append("marked onboarding_completed=true")
+        except Exception as exc:
+            notes.append(f"settings heal failed: {exc!r}")
+
     # 4. Restart webui — entrypoint's watchdog respawns it.
     pid_p = home / ".hermes" / "webui" / "server.pid"
     try:
