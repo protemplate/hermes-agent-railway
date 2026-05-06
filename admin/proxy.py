@@ -33,8 +33,42 @@ WEBUI_PORT = 9119
 WEBUI_BASE_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
 WEBUI_WS_BASE = f"ws://{WEBUI_HOST}:{WEBUI_PORT}"
 
-CONFIG_PATH = Path(os.environ.get("HERMES_HOME", "/data")) / "config.yaml"
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/data"))
+CONFIG_PATH = HERMES_HOME / "config.yaml"
+AUTH_PATH = HERMES_HOME / "auth.json"
 _config_provider_cache: tuple[float, str | None] | None = None
+_oauth_cache: tuple[float, float, bool] | None = None
+
+
+def _oauth_configured() -> bool:
+    """True iff auth.json contains a provider matching config.yaml's model.provider.
+
+    Used to suppress the WebUI onboarding wizard after `/auth-cli` completes:
+    upstream's auto-complete (`config_auto_completed`) requires `chat_ready`,
+    which requires `imports_ok`, which can briefly flicker False while the
+    webui process restarts after our heal step. During that window the wizard
+    re-renders. mtime-cached so this costs ~zero on the hot path.
+    """
+    global _oauth_cache
+    try:
+        cfg_mtime = CONFIG_PATH.stat().st_mtime
+        auth_mtime = AUTH_PATH.stat().st_mtime
+    except OSError:
+        return False
+    if _oauth_cache and _oauth_cache[0] == cfg_mtime and _oauth_cache[1] == auth_mtime:
+        return _oauth_cache[2]
+    ok = False
+    try:
+        cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+        auth = json.loads(AUTH_PATH.read_text(encoding="utf-8")) or {}
+        providers = auth.get("providers") if isinstance(auth.get("providers"), dict) else {}
+        model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+        prov = (model_cfg.get("provider") or "").strip()
+        ok = bool(prov and prov in providers)
+    except (OSError, yaml.YAMLError, json.JSONDecodeError):
+        ok = False
+    _oauth_cache = (cfg_mtime, auth_mtime, ok)
+    return ok
 
 
 def _active_provider() -> str | None:
@@ -166,6 +200,39 @@ async def http_proxy(request: Request) -> Response:
             status_code=502,
             media_type="text/plain",
         )
+
+    # Workaround for upstream wizard race: when OAuth is configured but the
+    # webui process is mid-restart (chat_ready=False because imports flicker),
+    # `/api/onboarding/status` returns completed=false and the wizard re-renders.
+    # Buffer the response and force completed=true when auth.json proves OAuth
+    # is set up. Only buffers this single small JSON endpoint — every other
+    # response (SSE chat, large payloads) streams unchanged.
+    if (
+        request.method == "GET"
+        and bare_path == "/api/onboarding/status"
+        and upstream.status_code == 200
+        and _oauth_configured()
+    ):
+        try:
+            raw = await upstream.aread()
+            await upstream.aclose()
+            payload = json.loads(raw)
+            if isinstance(payload, dict) and payload.get("completed") is not True:
+                payload["completed"] = True
+            mutated = json.dumps(payload).encode("utf-8")
+            headers = [
+                (k, v)
+                for k, v in _filter_response_headers(upstream.headers)
+                if k.lower() not in ("content-encoding",)
+            ]
+            return Response(
+                content=mutated,
+                status_code=upstream.status_code,
+                headers=dict(headers),
+                media_type="application/json",
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass  # fall through to streaming the original body
 
     async def body_iter():
         try:

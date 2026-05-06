@@ -97,6 +97,32 @@
           buttons.forEach(b => b.disabled = disabled);
         }
 
+        async function waitForReadyThenRedirect() {
+          const deadline = Date.now() + 60000;
+          let attempt = 0;
+          while (Date.now() < deadline) {
+            attempt += 1;
+            try {
+              const r = await fetch('/api/onboarding/status', { cache: 'no-store', credentials: 'same-origin' });
+              if (r.ok) {
+                const j = await r.json();
+                if (j && j.completed === true) {
+                  setStatus('WebUI ready — redirecting…', 'success');
+                  window.location.href = '/';
+                  return;
+                }
+                setStatus('WebUI online, waiting for onboarding to finalize… (attempt ' + attempt + ')', 'success');
+              } else {
+                setStatus('WebUI restarting… (HTTP ' + r.status + ', attempt ' + attempt + ')', 'success');
+              }
+            } catch (_) {
+              setStatus('WebUI restarting… (attempt ' + attempt + ')', 'success');
+            }
+            await new Promise(res => setTimeout(res, 1500));
+          }
+          setStatus('Timed out waiting for WebUI. Refresh manually if the wizard still appears.', 'error');
+        }
+
         function connect(provider) {
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.close();
@@ -126,10 +152,8 @@
                   term.writeln('\x1b[36m[' + msg.heal + ']\x1b[0m');
                 }
                 if (msg.code === 0) {
-                  setStatus('Setup complete. Reloading WebUI in 8s — you can also close this tab and refresh manually.', 'success');
-                  setTimeout(function () {
-                    window.location.href = '/';
-                  }, 8000);
+                  setStatus('Setup complete. Waiting for WebUI to come back up…', 'success');
+                  waitForReadyThenRedirect();
                 } else {
                   setStatus('Failed (exit code ' + msg.code + ').', 'error');
                 }
