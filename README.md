@@ -19,7 +19,7 @@ A single password-protected web UI on the Railway public domain ([screenshots](h
 - **Persistent state** on the `/data` volume — config, sessions, skills, workspace, WebUI state
 - **Bundled `searxng-local` skill** so Hermes can query the companion SearXNG service
 - **Health check** at `/health` (Railway probe)
-- **OAuth login (`/auth-cli`)** — in-browser xterm running `hermes auth add <provider> --type oauth` for ChatGPT (Codex) and Nous Portal device-code flows. Useful when you want to use your ChatGPT subscription instead of paying for OpenAI API access. New sessions automatically inherit the provider you configured (workaround for an upstream hermes-webui bug — see `admin/proxy.py:_active_provider`).
+- **Web terminal (`/tui`)** — in-browser xterm with two modes: OAuth shortcut buttons that run `hermes auth add <provider> --type oauth` for ChatGPT (Codex) and Nous Portal device-code flows, plus a free-form `/bin/bash` pane for any other `hermes` CLI command. Useful when you want to use your ChatGPT subscription instead of paying for OpenAI API access, or when you need a shell without SSH access. New sessions automatically inherit the provider you configured (workaround for an upstream hermes-webui bug — see `admin/proxy.py:_active_provider`).
 
 ## Railway Services
 
@@ -142,7 +142,7 @@ Open `http://localhost:8080` and enter `changeme` at the password prompt.
 ## Operations
 
 - Web UI: `/`
-- OAuth login (Codex, Nous Portal): `/auth-cli`
+- Web terminal (OAuth shortcuts + shell): `/tui`
 - Health check: `/health`
 - Gateway log (when `START_GATEWAY=true`): `/data/logs/gateway.log`
 - Gateway PID file: `/data/gateway.pid`
@@ -151,18 +151,23 @@ Open `http://localhost:8080` and enter `changeme` at the password prompt.
 - Hermes config: `/data/config.yaml`
 - Hermes env: `/data/.env`
 
-### How `/auth-cli` works
+### How `/tui` works
 
-Hermes Agent's OAuth providers (ChatGPT/Codex and Nous Portal) use the **OAuth device-code grant (RFC 8628)**, which doesn't require a localhost callback — perfect for remote deployments. The flow:
+`/tui` is a two-pane web terminal: a left rail of preset buttons (OAuth login, status commands, file viewers, "Open shell") and a right pane with xterm.js. Behind it are two WebSocket modes:
 
-1. Visit `/auth-cli` (you must already be logged in to the Hermes WebUI).
+- **OAuth one-shots** (`/tui/ws/auth/<provider>`) — clicking an OAuth button spawns a dedicated PTY running `hermes auth add <provider> --type oauth --no-browser`. On clean exit, the wrapper writes `model.provider` into `/data/config.yaml`, marks onboarding complete, restarts hermes-webui, and the page redirects you to `/`.
+- **Shell** (`/tui/ws/shell`) — clicking "Open shell" or any non-OAuth preset spawns `/bin/bash -i` with `cwd=/data` and Hermes' venv on PATH. Run `hermes status`, `hermes auth list`, `cat /data/config.yaml`, `tail .../webui.log` — anything you'd run over SSH.
+
+Hermes' OAuth providers (ChatGPT/Codex and Nous Portal) use the **OAuth device-code grant (RFC 8628)**, which doesn't require a localhost callback — perfect for remote deployments. The OAuth flow:
+
+1. Visit `/tui` (you must already be logged in to the Hermes WebUI).
 2. Click **Login with ChatGPT (Codex)** or **Login with Nous Portal**.
-3. The in-browser terminal runs `hermes login --provider <X> --no-browser` and prints a verification URL plus a short code.
+3. The in-browser terminal prints a verification URL plus a short code.
 4. Open the URL in another tab on any device, sign in to the provider, and enter the code.
-5. The CLI completes the flow, writes credentials to `/data/.hermes/auth.json`, and exits with `Login successful.`
-6. Refresh the WebUI — your provider is now configured.
+5. The CLI completes the flow, writes credentials to `/data/auth.json`, and exits with `Added <provider> OAuth credential #1`.
+6. The page redirects to `/` once the WebUI is back up — your provider is now configured.
 
-API-key providers (OpenRouter, OpenAI, Anthropic, Google Gemini, etc.) use the in-wizard form on the WebUI's onboarding page — no need to visit `/auth-cli`.
+API-key providers (OpenRouter, OpenAI, Anthropic, Google Gemini, etc.) use the in-wizard form on the WebUI's onboarding page — no need to visit `/tui`.
 
 ## Notes
 

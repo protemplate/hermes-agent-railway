@@ -1,8 +1,13 @@
-"""PTY+WebSocket bridge for /auth-cli — runs `hermes auth add <X> --type oauth --no-browser`.
+"""PTY+WebSocket bridges for /tui — both OAuth one-shots and a free-form shell.
 
-Whitelist of allowed providers. Each WebSocket session forks one child in a PTY,
-streams output to the browser as JSON envelopes, accepts input/resize messages.
-On disconnect or child exit, the PTY child is reaped.
+Two modes share the same `_bridge()` PTY pump:
+
+- `login_ws`  → runs `hermes auth add <X> --type oauth --no-browser` (or `hermes
+  model --no-browser`). Provider is from the URL. On clean exit, runs the
+  post-auth heal (writes config.yaml, sets onboarding_completed, SIGTERMs webui)
+  and the frontend redirects to `/`.
+- `shell_ws` → runs `/bin/bash -i`. No provider, no heal step on exit. Lets
+  non-SSH users run any `hermes` CLI command, peek at `/data`, tail logs.
 
 Hermes uses OAuth device-code (RFC 8628) for `openai-codex` and `nous`: the CLI
 prints "Visit URL X, enter code Y", the user opens X in any browser (any device),
@@ -69,7 +74,16 @@ async def login_ws(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
-    await _bridge(websocket, argv)
+    await _bridge(websocket, argv, run_heal_on_success=True)
+
+
+async def shell_ws(websocket: WebSocket) -> None:
+    """Free-form `/bin/bash -i` for non-SSH users. No argv lock-down, no heal."""
+    if not await _check_auth(websocket):
+        await websocket.close(code=4401)
+        return
+    await websocket.accept()
+    await _bridge(websocket, ["/bin/bash", "-i"], run_heal_on_success=False)
 
 
 async def _check_auth(websocket: WebSocket) -> bool:
@@ -148,7 +162,7 @@ def _post_auth_heal_and_restart() -> str:
             # auth.json["credential_pool"][<provider>] (a list of entries) for
             # multi-credential support, NOT to auth.json["providers"][<provider>].
             # Treat a non-empty pool entry as "authed" so Codex/Nous OAuth flows
-            # through `/auth-cli` actually trigger config.yaml + settings.json heal.
+            # through `/tui` actually trigger config.yaml + settings.json heal.
             pool = (auth.get("credential_pool") or {}) if isinstance(auth.get("credential_pool"), dict) else {}
             authed = [
                 p for p in _PROVIDER_BASE
@@ -274,7 +288,7 @@ def _post_auth_heal_and_restart() -> str:
     return "; ".join(notes) if notes else "no-op (nothing to heal)"
 
 
-async def _bridge(ws: WebSocket, argv: list[str]) -> None:
+async def _bridge(ws: WebSocket, argv: list[str], *, run_heal_on_success: bool) -> None:
     from ptyprocess import PtyProcessUnicode  # type: ignore
 
     cwd = str(HERMES_HOME)
@@ -367,10 +381,12 @@ async def _bridge(ws: WebSocket, argv: list[str]) -> None:
             if not task.done():
                 task.cancel()
 
-        # On clean exit, normalize state and trigger a webui restart so the
-        # user sees a fresh catalog/sessions on the next page load.
+        # On clean exit of an OAuth one-shot, normalize state and trigger a
+        # webui restart so the user sees a fresh catalog/sessions on the next
+        # page load. Shell sessions skip this — exiting bash is not an auth
+        # event and webui shouldn't be perturbed.
         heal_note = ""
-        if exit_code == 0:
+        if run_heal_on_success and exit_code == 0:
             try:
                 heal_note = await asyncio.get_running_loop().run_in_executor(
                     None, _post_auth_heal_and_restart

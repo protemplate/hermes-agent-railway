@@ -1,8 +1,8 @@
 """Reverse proxy: forwards `/*` (HTTP and WebSocket) to hermes-webui at 127.0.0.1:9119.
 
 hermes-webui owns auth, session cookies, SSE chat streams, and almost the entire
-public surface. Our wrapper sits in front purely so we can also serve `/auth-cli`
-and its WebSocket route on the same public port.
+public surface. Our wrapper sits in front purely so we can also serve `/tui`
+(OAuth shortcuts + free-form shell) on the same public port.
 
 Header treatment:
 - Hop-by-hop headers stripped (connection, keep-alive, transfer-encoding, etc.).
@@ -43,7 +43,7 @@ _oauth_cache: tuple[float, float, bool] | None = None
 def _oauth_configured() -> bool:
     """True iff auth.json contains a provider matching config.yaml's model.provider.
 
-    Used to suppress the WebUI onboarding wizard after `/auth-cli` completes:
+    Used to suppress the WebUI onboarding wizard after `/tui` OAuth completes:
     upstream's auto-complete (`config_auto_completed`) requires `chat_ready`,
     which requires `imports_ok`, which can briefly flicker False while the
     webui process restarts after our heal step. During that window the wizard

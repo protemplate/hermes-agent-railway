@@ -1,13 +1,17 @@
 """Thin Starlette wrapper in front of hermes-webui.
 
-Adds one new surface — `/auth-cli` — that exposes an in-browser xterm running
-`hermes login --provider <X> --no-browser` for OAuth device-code providers
-(Codex / Nous Portal). Every other path is reverse-proxied to hermes-webui on
-127.0.0.1:9119, including WebSockets and SSE chat streams.
+Adds one new surface — `/tui` — that exposes an in-browser xterm with two modes:
+  - OAuth one-shots: `hermes auth add <X> --type oauth --no-browser` for Codex /
+    Nous Portal device-code flows (`/tui/ws/auth/<provider>`).
+  - Free-form shell: `/bin/bash -i` for users without SSH access who need to
+    run other `hermes` CLI commands or peek at `/data` (`/tui/ws/shell`).
+
+Every other path is reverse-proxied to hermes-webui on 127.0.0.1:9119, including
+WebSockets and SSE chat streams.
 
 This wrapper does NOT enforce its own auth; it delegates to hermes-webui's
-existing password gate. The /auth-cli WebSocket validates the
-`hermes_session` cookie by probing hermes-webui's API.
+existing password gate. The /tui WebSockets validate the `hermes_session`
+cookie by probing hermes-webui's API.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from . import proxy as hermes_proxy
 from . import terminal as hermes_terminal
 
 
-TEMPLATE_PATH = Path(__file__).parent / "templates" / "auth_cli.html"
+TEMPLATE_PATH = Path(__file__).parent / "templates" / "tui.html"
 
 
 async def _is_authenticated(request: Request) -> bool:
@@ -48,9 +52,9 @@ async def _is_authenticated(request: Request) -> bool:
         return False
 
 
-async def auth_cli_page(request: Request):
+async def tui_page(request: Request):
     if not await _is_authenticated(request):
-        return RedirectResponse("/login?next=/auth-cli", status_code=303)
+        return RedirectResponse("/login?next=/tui", status_code=303)
     return HTMLResponse(TEMPLATE_PATH.read_text(encoding="utf-8"))
 
 
@@ -58,8 +62,9 @@ PROXY_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 
 routes = [
-    Route("/auth-cli", auth_cli_page, methods=["GET"]),
-    WebSocketRoute("/auth-cli/ws/{provider}", hermes_terminal.login_ws),
+    Route("/tui", tui_page, methods=["GET"]),
+    WebSocketRoute("/tui/ws/auth/{provider}", hermes_terminal.login_ws),
+    WebSocketRoute("/tui/ws/shell", hermes_terminal.shell_ws),
     # Catch-all proxy for everything else (HTTP + WebSocket).
     WebSocketRoute("/{path:path}", hermes_proxy.ws_proxy),
     Route("/{path:path}", hermes_proxy.http_proxy, methods=PROXY_METHODS),

@@ -262,8 +262,8 @@ WEBUI_LOG="${HERMES_HOME}/logs/webui.log"
 WEBUI_PID_FILE="${HERMES_HOME}/.hermes/webui/server.pid"
 mkdir -p "$(dirname "${WEBUI_PID_FILE}")"
 
-# Respawn watchdog: keeps hermes-webui alive. Lets /auth-cli kill it after a
-# successful auth/model command so the user gets a fresh process (with
+# Respawn watchdog: keeps hermes-webui alive. Lets /tui's OAuth flow kill it
+# after a successful auth/model command so the user gets a fresh process (with
 # refreshed catalog/session cache) without needing a full container restart.
 # Don't use setsid — it detaches the child so `wait $!` can't track it,
 # turning the loop into a tight respawn that breaks within a few iterations.

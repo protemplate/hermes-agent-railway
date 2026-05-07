@@ -60,10 +60,11 @@ RUN git init . && \
     uv pip install --python /opt/hermes/.venv/bin/python --no-cache-dir -r requirements.txt && \
     chmod -R a+rX /opt/hermes-webui
 
-# Wrapper extras: small Starlette app that exposes /auth-cli (in-browser xterm
-# for `hermes login --provider <X>` device-code flows) and reverse-proxies
-# everything else to hermes-webui on 127.0.0.1:9119. starlette/uvicorn/httpx
-# may already be transitive Hermes deps, but install explicitly to pin.
+# Wrapper extras: small Starlette app that exposes /tui (in-browser xterm with
+# OAuth shortcut buttons for `hermes auth add` device-code flows plus a free-
+# form `/bin/bash` pane) and reverse-proxies everything else to hermes-webui on
+# 127.0.0.1:9119. starlette/uvicorn/httpx may already be transitive Hermes
+# deps, but install explicitly to pin.
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache-dir \
     ptyprocess httpx websockets starlette uvicorn
 

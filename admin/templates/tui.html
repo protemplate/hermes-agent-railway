@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hermes — Web Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        background: #05070b;
+        color: #eef3ff;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        min-height: 100vh;
+      }
+      .shell { max-width: 1400px; margin: 0 auto; padding: 1.5rem 1.25rem 2rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+      .lead { color: #9aa8bd; margin: 0 0 1.25rem; max-width: 80ch; font-size: 0.95rem; }
+      .lead a { color: #8be7c7; }
+      .topnav { font-size: 0.85rem; color: #9aa8bd; margin-bottom: 0.75rem; }
+      .topnav a { color: #8be7c7; }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 1rem;
+        height: calc(100vh - 220px);
+        min-height: 28rem;
+      }
+      @media (max-width: 760px) {
+        .layout { grid-template-columns: 1fr; height: auto; }
+        .term-box { height: 60vh; }
+      }
+
+      .rail {
+        background: #0a0e16;
+        border: 1px solid #1c2638;
+        border-radius: 1rem;
+        padding: 0.85rem;
+        overflow-y: auto;
+      }
+      .rail h2 {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #6b7a92;
+        margin: 0.85rem 0 0.4rem;
+        font-weight: 600;
+      }
+      .rail h2:first-of-type { margin-top: 0; }
+      .rail button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: #101623;
+        border: 1px solid #1f2a3e;
+        color: #eef3ff;
+        border-radius: 0.6rem;
+        padding: 0.55rem 0.7rem;
+        font: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+        margin-bottom: 0.35rem;
+        transition: border-color 0.12s, color 0.12s;
+      }
+      .rail button:hover { border-color: #46cfa5; color: #8be7c7; }
+      .rail button[disabled] { opacity: 0.45; cursor: not-allowed; }
+      .rail button.primary {
+        background: #0e1a16;
+        border-color: #2e4d3f;
+        color: #8be7c7;
+        font-weight: 600;
+      }
+      .rail button.primary:hover { border-color: #46cfa5; }
+      .rail button code {
+        font-family: SFMono-Regular, Consolas, Liberation Mono, monospace;
+        font-size: 0.8rem;
+        color: inherit;
+        background: transparent;
+      }
+
+      .term-pane {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .term-box {
+        background: #05070b;
+        border: 1px solid #243249;
+        border-radius: 1rem;
+        flex: 1;
+        min-height: 22rem;
+        padding: 0.75rem;
+      }
+      .term-box .xterm,
+      .term-box .xterm-viewport,
+      .term-box .xterm-screen { height: 100% !important; width: 100% !important; }
+      .status { color: #9aa8bd; font-size: 0.85rem; margin-top: 0.6rem; min-height: 1.2em; }
+      .status.success { color: #8be7c7; }
+      .status.error { color: #ff9a9a; }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <p class="topnav">← <a href="/">Back to Hermes WebUI</a></p>
+      <h1>Web Terminal</h1>
+      <p class="lead">
+        OAuth login shortcuts and a full shell, so you don't need SSH. Click an
+        OAuth button to start a device-code login &mdash; open the URL on your
+        phone, enter the code, and the WebUI is ready to chat. Or open a shell
+        to run any <code>hermes</code> CLI command, peek at <code>/data</code>,
+        or tail logs.
+      </p>
+
+      <div class="layout">
+        <aside class="rail">
+          <h2>OAuth Login</h2>
+          <button class="primary" data-mode="auth" data-provider="openai-codex">Login with ChatGPT (Codex)</button>
+          <button class="primary" data-mode="auth" data-provider="nous">Login with Nous Portal</button>
+          <button class="primary" data-mode="auth" data-provider="model">Interactive provider picker</button>
+
+          <h2>Status &amp; inspection</h2>
+          <button data-mode="shell-cmd" data-cmd="hermes status"><code>hermes status</code></button>
+          <button data-mode="shell-cmd" data-cmd="hermes auth list"><code>hermes auth list</code></button>
+          <button data-mode="shell-cmd" data-cmd="hermes model list"><code>hermes model list</code></button>
+
+          <h2>Files</h2>
+          <button data-mode="shell-cmd" data-cmd="cat /data/config.yaml"><code>cat config.yaml</code></button>
+          <button data-mode="shell-cmd" data-cmd="tail -n 50 /data/.hermes/webui/webui.log"><code>tail webui.log</code></button>
+
+          <h2>Shell</h2>
+          <button data-mode="shell">Open shell</button>
+        </aside>
+
+        <div class="term-pane">
+          <div id="term" class="term-box"></div>
+          <div id="status" class="status">Pick an action to begin.</div>
+        </div>
+      </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+    <script>
+      (function () {
+        const term = new Terminal({
+          cursorBlink: true,
+          fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
+          fontSize: 13,
+          theme: { background: '#05070b' },
+          convertEol: true,
+        });
+        const fit = new FitAddon.FitAddon();
+        term.loadAddon(fit);
+        term.loadAddon(new WebLinksAddon.WebLinksAddon());
+        const host = document.getElementById('term');
+        const status = document.getElementById('status');
+        term.open(host);
+        try { fit.fit(); } catch (_) {}
+
+        const buttons = Array.from(document.querySelectorAll('.rail button'));
+        let ws = null;
+        // 'oauth' | 'shell' | null. Tracks what kind of PTY is on the other end
+        // of the active WebSocket so we know whether to redirect on success and
+        // whether a preset command can be injected directly.
+        let currentMode = null;
+
+        function setStatus(text, kind) {
+          status.textContent = text;
+          status.className = 'status' + (kind ? ' ' + kind : '');
+        }
+
+        function setButtonsDisabled(disabled) {
+          buttons.forEach(b => b.disabled = disabled);
+        }
+
+        async function waitForReadyThenRedirect() {
+          // Poll /api/onboarding/status until the server reports completed=true
+          // (the proxy mutation forces this once auth.json has OAuth creds), then
+          // redirect to '/'. Without this we'd race the webui restart and land
+          // on the wizard.
+          const deadline = Date.now() + 60000;
+          let attempt = 0;
+          while (Date.now() < deadline) {
+            attempt += 1;
+            try {
+              const r = await fetch('/api/onboarding/status', { cache: 'no-store', credentials: 'same-origin' });
+              if (r.ok) {
+                const j = await r.json();
+                if (j && j.completed === true) {
+                  setStatus('WebUI ready — redirecting…', 'success');
+                  window.location.href = '/';
+                  return;
+                }
+                setStatus('WebUI online, waiting for onboarding to finalize… (attempt ' + attempt + ')', 'success');
+              } else {
+                setStatus('WebUI restarting… (HTTP ' + r.status + ', attempt ' + attempt + ')', 'success');
+              }
+            } catch (_) {
+              setStatus('WebUI restarting… (attempt ' + attempt + ')', 'success');
+            }
+            await new Promise(res => setTimeout(res, 1500));
+          }
+          setStatus('Timed out waiting for WebUI. Refresh manually if the wizard still appears.', 'error');
+        }
+
+        function closeActiveWs() {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            try { ws.close(); } catch (_) {}
+          }
+          ws = null;
+          currentMode = null;
+        }
+
+        function sendInput(data) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data }));
+          }
+        }
+
+        function sendResize() {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
+        }
+
+        function wsBase() {
+          return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+        }
+
+        function attachHandlers(mode, opts) {
+          // opts: { provider?, label, onOpen? } — label used for the
+          // [connected — running ...] banner; onOpen runs after first connect.
+          ws.addEventListener('open', () => {
+            term.writeln('\x1b[32m[connected — ' + opts.label + ']\x1b[0m');
+            sendResize();
+            setStatus(mode === 'oauth'
+              ? 'Watch the terminal for the verification URL and code.'
+              : 'Shell ready. Type any command or click a preset.');
+            if (typeof opts.onOpen === 'function') opts.onOpen();
+          });
+
+          ws.addEventListener('message', (ev) => {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (msg.type === 'output') term.write(msg.data);
+              else if (msg.type === 'exit') {
+                term.writeln('\r\n\x1b[33m[process exited' + (typeof msg.code === 'number' ? ' code=' + msg.code : '') + ']\x1b[0m');
+                if (msg.heal) {
+                  term.writeln('\x1b[36m[' + msg.heal + ']\x1b[0m');
+                }
+                if (mode === 'oauth' && msg.code === 0) {
+                  setStatus('Setup complete. Waiting for WebUI to come back up…', 'success');
+                  waitForReadyThenRedirect();
+                } else if (msg.code === 0) {
+                  setStatus('Shell exited.', 'success');
+                } else {
+                  setStatus('Process exited with code ' + msg.code + '.', mode === 'oauth' ? 'error' : '');
+                }
+                setButtonsDisabled(false);
+                currentMode = null;
+              }
+            } catch (_) { term.write(ev.data); }
+          });
+
+          ws.addEventListener('close', (ev) => {
+            if (ev.code === 4400) setStatus('Unknown provider.', 'error');
+            else if (ev.code === 4401) setStatus('Not authenticated. Please log in to the WebUI first.', 'error');
+            else if (status.textContent === 'Connecting…') setStatus('Connection closed.', 'error');
+            setButtonsDisabled(false);
+            if (currentMode) currentMode = null;
+          });
+
+          ws.addEventListener('error', () => {
+            setStatus('Connection error.', 'error');
+            setButtonsDisabled(false);
+          });
+        }
+
+        function connectOAuth(provider) {
+          closeActiveWs();
+          term.reset();
+          setButtonsDisabled(true);
+          setStatus('Connecting…');
+          currentMode = 'oauth';
+          ws = new WebSocket(wsBase() + '/tui/ws/auth/' + encodeURIComponent(provider));
+          const cmdLabel = provider === 'model'
+            ? 'running hermes model --no-browser'
+            : 'running hermes auth add ' + provider + ' --type oauth --no-browser';
+          attachHandlers('oauth', { label: cmdLabel });
+        }
+
+        function connectShell(onOpen) {
+          closeActiveWs();
+          term.reset();
+          setButtonsDisabled(true);
+          setStatus('Connecting…');
+          currentMode = 'shell';
+          ws = new WebSocket(wsBase() + '/tui/ws/shell');
+          attachHandlers('shell', {
+            label: 'shell ready',
+            onOpen: () => {
+              setButtonsDisabled(false);  // shell is long-lived; let user click presets
+              if (typeof onOpen === 'function') onOpen();
+            },
+          });
+        }
+
+        function runCmd(cmd) {
+          // Inject `<cmd>\n` into the active shell. If no shell is open, open
+          // one first, then send once the connection is up.
+          if (currentMode === 'shell' && ws && ws.readyState === WebSocket.OPEN) {
+            sendInput(cmd + '\n');
+            return;
+          }
+          connectShell(() => sendInput(cmd + '\n'));
+        }
+
+        term.onData((data) => {
+          // Only forward keystrokes when we're in shell mode. OAuth flows are
+          // mostly read-only output; the upstream CLI handles its own input.
+          sendInput(data);
+        });
+
+        const ro = new ResizeObserver(() => {
+          try { fit.fit(); sendResize(); } catch (_) {}
+        });
+        ro.observe(host);
+
+        buttons.forEach(b => b.addEventListener('click', () => {
+          const mode = b.dataset.mode;
+          if (mode === 'auth') {
+            connectOAuth(b.dataset.provider);
+          } else if (mode === 'shell') {
+            connectShell();
+          } else if (mode === 'shell-cmd') {
+            runCmd(b.dataset.cmd);
+          }
+        }));
+      })();
+    </script>
+  </body>
+</html>
