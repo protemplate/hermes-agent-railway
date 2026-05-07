@@ -144,7 +144,17 @@ def _post_auth_heal_and_restart() -> str:
         try:
             auth = json.loads(auth_p.read_text(encoding="utf-8")) or {}
             providers = (auth.get("providers") or {}) if isinstance(auth.get("providers"), dict) else {}
-            authed = [p for p in providers.keys() if p in _PROVIDER_BASE]
+            # `hermes auth add <provider> --type oauth` writes credentials to
+            # auth.json["credential_pool"][<provider>] (a list of entries) for
+            # multi-credential support, NOT to auth.json["providers"][<provider>].
+            # Treat a non-empty pool entry as "authed" so Codex/Nous OAuth flows
+            # through `/auth-cli` actually trigger config.yaml + settings.json heal.
+            pool = (auth.get("credential_pool") or {}) if isinstance(auth.get("credential_pool"), dict) else {}
+            authed = [
+                p for p in _PROVIDER_BASE
+                if p in providers
+                or (isinstance(pool.get(p), list) and len(pool.get(p)) > 0)
+            ]
             if authed:
                 if cfg_p.exists():
                     cfg = yaml.safe_load(cfg_p.read_text(encoding="utf-8")) or {}

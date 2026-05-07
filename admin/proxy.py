@@ -62,9 +62,17 @@ def _oauth_configured() -> bool:
         cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
         auth = json.loads(AUTH_PATH.read_text(encoding="utf-8")) or {}
         providers = auth.get("providers") if isinstance(auth.get("providers"), dict) else {}
+        # `hermes auth add <X> --type oauth` writes to auth.json["credential_pool"][<X>],
+        # not auth.json["providers"][<X>]. Accept either as proof of OAuth setup.
+        pool = auth.get("credential_pool") if isinstance(auth.get("credential_pool"), dict) else {}
         model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
         prov = (model_cfg.get("provider") or "").strip()
-        ok = bool(prov and prov in providers)
+        pool_entries = pool.get(prov) if prov else None
+        ok = bool(
+            prov
+            and (prov in providers
+                 or (isinstance(pool_entries, list) and len(pool_entries) > 0))
+        )
     except (OSError, yaml.YAMLError, json.JSONDecodeError):
         ok = False
     _oauth_cache = (cfg_mtime, auth_mtime, ok)
