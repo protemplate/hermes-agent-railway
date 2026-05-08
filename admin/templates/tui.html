@@ -25,12 +25,16 @@
       .layout {
         display: grid;
         grid-template-columns: 280px 1fr;
+        /* minmax(0, 1fr) on the row + min-height:0 on flex children below
+           breaks CSS grid's default min-height:auto, which otherwise lets
+           xterm's fit() feedback-loop the container to infinity. */
+        grid-template-rows: minmax(0, 1fr);
         gap: 1rem;
         height: calc(100vh - 220px);
         min-height: 28rem;
       }
       @media (max-width: 760px) {
-        .layout { grid-template-columns: 1fr; height: auto; }
+        .layout { grid-template-columns: 1fr; grid-template-rows: auto auto; height: auto; }
         .term-box { height: 60vh; }
       }
 
@@ -40,6 +44,7 @@
         border-radius: 1rem;
         padding: 0.85rem;
         overflow-y: auto;
+        min-height: 0;
       }
       .rail h2 {
         font-size: 0.7rem;
@@ -85,14 +90,16 @@
         display: flex;
         flex-direction: column;
         min-width: 0;
+        min-height: 0;
       }
       .term-box {
         background: #05070b;
         border: 1px solid #243249;
         border-radius: 1rem;
         flex: 1;
-        min-height: 22rem;
+        min-height: 0;
         padding: 0.75rem;
+        overflow: hidden;
       }
       .term-box .xterm,
       .term-box .xterm-viewport,
