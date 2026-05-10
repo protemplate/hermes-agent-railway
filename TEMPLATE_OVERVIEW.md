@@ -1,8 +1,29 @@
-# Deploy and Host Hermes Agent with SearXNG on Railway
+# Deploy and Host Hermes Agent with Hermes WebUI, Web TUI, Chromium Browser & SearXNG on Railway
 
 Hermes Agent is a self-improving, open-source AI agent from Nous Research. It connects to messaging channels such as Telegram, Discord, Slack, WhatsApp, Signal, and Email, remembers previous work, creates and improves skills, and can run scheduled automations. This Railway template packages Hermes with [Hermes WebUI](https://github.com/nesquena/hermes-webui) — the popular community web interface — so you get a polished browser experience for chat, sessions, settings, and onboarding right after deploy.
 
 The template also includes a companion SearXNG service so Hermes has private, self-hosted web search available without third-party search API keys.
+
+### Web-Based TUI: One-Click OAuth, No SSH Required
+
+Headless OAuth is a nightmare — no browser, no localhost callback, no easy way to paste a device code. Railway has `railway ssh` if you've installed the CLI and linked the project, but most people deploying from a template haven't, and a browser is always closer to hand than a terminal. This template ships with **`/tui`**, a web-based terminal embedded directly in the Hermes UI. Open it from any browser and you get the full Hermes CLI experience without installing anything locally.
+
+**One-Click OAuth.** `/tui` runs Hermes' device-code flow for you. Click "Login with ChatGPT (Codex)", scan the code on your phone, and you're chatting with GPT-5.5 through your existing **$20/mo ChatGPT subscription** — no API key, no per-token billing, no SSH tunnels, no `xdg-open` errors. Same flow works for **Nous Portal**, **Anthropic (Claude Max)**, and **GitHub Copilot**. For other providers (OpenRouter, DeepSeek, Gemini API, etc.), paste your API key into the WebUI Settings panel.
+
+**Full web shell.** `/tui` also exposes a long-lived `/bin/bash` pane for the moments you need to peek at logs, inspect `/data`, or run a `hermes` CLI command directly — no `railway ssh` setup, no local CLI install required. Authentication reuses the WebUI's `hermes_session` cookie, so the shell is gated behind the same admin password as the rest of the UI.
+
+### Built-In Chromium: Real Browser Automation Out of the Box
+
+Most Railway templates that "support a browser tool" leave you to figure out the runtime yourself — Hermes happily calls Playwright, but only if Chromium and its system libraries are actually installed. This template ships with **Playwright Chromium pre-installed** in the container, so Hermes' browser tool works the moment the deploy finishes. No `apt-get install`, no missing `libnss3` errors, no headless-shell dance.
+
+That means you can ask Hermes to:
+
+- **Navigate sites and fill forms** — log into dashboards, submit signup pages, click through multi-step flows.
+- **Take screenshots** — capture a page, a region, or full scrollable content for reports, monitoring, or audits.
+- **Scrape rendered HTML** — pages that need JavaScript to render are no problem.
+- **Drive auth flows** — pair the browser with the agent's memory to keep sessions across runs.
+
+Combined with the bundled SearXNG service, Hermes can search the web privately, then open and interact with the results — all inside one Railway project, with no third-party browser API.
 
 ## About Hosting Hermes Agent
 
@@ -35,12 +56,14 @@ An optional `START_GATEWAY=true` environment variable enables the messaging gate
 
 ### Implementation Details
 
-The Hermes service runs a thin Starlette wrapper on `$PORT`. The wrapper serves `/auth-cli` (an in-browser xterm for `hermes login --provider <X>` device-code flows) and reverse-proxies everything else to Hermes WebUI on the loopback:
+The Hermes service runs a thin Starlette wrapper on `$PORT`. The wrapper serves `/tui` (an in-browser xterm with OAuth shortcuts and a free-form `/bin/bash` pane) and reverse-proxies everything else to Hermes WebUI on the loopback:
 
 ```text
-User -> Wrapper ($PORT) ──┬── /auth-cli            xterm running `hermes login`
-                          └── /*                   reverse-proxy → 127.0.0.1:9119
-                                                                   (Hermes WebUI)
+User -> Wrapper ($PORT) ──┬── /tui                  Two-pane web terminal
+                          │     ├── /tui/ws/auth/<X>   one-shot `hermes auth add <X>`
+                          │     └── /tui/ws/shell      long-lived /bin/bash -i
+                          └── /*                    reverse-proxy → 127.0.0.1:9119
+                                                                    (Hermes WebUI)
 
 Hermes WebUI (127.0.0.1:9119)
         |-> /              Three-panel UI (sessions / chat / workspace)
@@ -51,7 +74,7 @@ Background (optional, when START_GATEWAY=true):
         hermes gateway run --replace   (Telegram/Discord/Slack/email bridges)
 ```
 
-Both Hermes Agent and Hermes WebUI run inside the same container and share the `/data` volume, so the WebUI reads/writes the same `~/.hermes/` state the Agent uses. Auth on `/auth-cli` reuses the WebUI's `hermes_session` cookie, so users don't have to log in twice.
+Both Hermes Agent and Hermes WebUI run inside the same container and share the `/data` volume, so the WebUI reads/writes the same `~/.hermes/` state the Agent uses. Auth on `/tui` reuses the WebUI's `hermes_session` cookie, so users don't have to log in twice.
 
 The SearXNG service is referenced from Hermes with Railway private networking:
 
