@@ -6,6 +6,13 @@ export PORT="${PORT:-8080}"
 export PATH="/opt/hermes/.venv/bin:/data/.local/bin:${PATH}"
 export PYTHONPATH="/opt/hermes-railway:/opt/hermes-webui:/opt/hermes:${PYTHONPATH:-}"
 
+# Point the hermes user's $HOME at the persistent /data volume. Railway only
+# allows one volume per service, so anything that lands outside /data is wiped
+# on redeploy. Without this, the agent's chat workspace defaults to
+# $HOME/workspace = /home/hermes/workspace, and subprocess tools (git, ssh,
+# gh, npm, Playwright auth state) cache under /home/hermes — both ephemeral.
+export HOME="${HERMES_HOME}/home"
+
 ADMIN_PASSWORD_FILE="${HERMES_HOME}/admin.password"
 
 mkdir -p \
@@ -13,16 +20,19 @@ mkdir -p \
   "${HERMES_HOME}/.hermes/webui" \
   "${HERMES_HOME}/cron" \
   "${HERMES_HOME}/home" \
+  "${HERMES_HOME}/home/workspace" \
   "${HERMES_HOME}/hooks" \
   "${HERMES_HOME}/logs" \
   "${HERMES_HOME}/memories" \
   "${HERMES_HOME}/plans" \
   "${HERMES_HOME}/sessions" \
   "${HERMES_HOME}/skills" \
-  "${HERMES_HOME}/skins" \
-  "${HERMES_HOME}/workspace"
+  "${HERMES_HOME}/skins"
 
 if [ "$(id -u)" = "0" ]; then
+  # Update /etc/passwd so anything that reads home from passwd (gosu, getent,
+  # Python's pwd module) agrees with $HOME. Harmless if already set.
+  usermod -d "${HOME}" hermes 2>/dev/null || true
   chown -R hermes:hermes "${HERMES_HOME}" 2>/dev/null || true
 fi
 
