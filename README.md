@@ -2,6 +2,8 @@
 
 Deploy [Hermes Agent](https://github.com/NousResearch/hermes-agent) (NousResearch's self-improving AI agent) to [Railway](https://railway.com), fronted by [Hermes WebUI](https://github.com/nesquena/hermes-webui) — the popular community web interface for Hermes — with an optional private SearXNG search service.
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/hermes-agent-all-in-one)
+
 Two-service Railway deployment:
 
 - **Hermes Agent** — Hermes Agent itself plus Hermes WebUI on the public HTTP port. Optional in-container messaging gateway daemon (Telegram/Discord/Slack/email).
