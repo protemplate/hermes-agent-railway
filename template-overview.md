@@ -58,7 +58,7 @@ Upstream Docker images run `tools/skills_sync.py` from the Hermes install direct
 ## Dependencies for Hermes Agent Hosting
 
 - **Hermes Agent**: Installed from `https://github.com/NousResearch/hermes-agent` (pinned via `HERMES_REF=v2026.6.5`).
-- **Hermes WebUI**: Installed from `https://github.com/nesquena/hermes-webui` (pinned via `HERMES_WEBUI_REF=v0.51.303`).
+- **Hermes WebUI**: Installed from `https://github.com/nesquena/hermes-webui` (pinned via `HERMES_WEBUI_REF=v0.51.310`).
 - **SearXNG**: Companion search service.
 - **Railway volume**: Mount at `/data` for persistent state.
 - **LLM provider**: OpenRouter, Anthropic, OpenAI, Gemini, z.ai, Kimi, MiniMax, Hugging Face, or a custom OpenAI-compatible endpoint.
