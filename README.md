@@ -220,6 +220,6 @@ The wrapper sets **`X-Forwarded-Prefix: /hermes-dashboard`** when forwarding to 
 
 - **Ports:** The public Railway listener stays **`PORT`**. Hermes WebUI listens on **`HERMES_WEBUI_HOST`/`HERMES_WEBUI_PORT`** (default **127.0.0.1:9120**) and is reverse-proxied from **`/`**. The **`hermes dashboard`** subprocess defaults to **`127.0.0.1:9119`** (see **`HERMES_DASHBOARD_*`** defaults in [`entrypoint.sh`](./entrypoint.sh)); traffic is surfaced at **`HERMES_DASHBOARD_MOUNT_PATH`**, not via a separate Railway port.
 - **Skills at boot:** Upstream Docker runs `tools/skills_sync.py` from the Hermes install tree to mirror bundled skills onto the volume. This template does **not** run that script; only bundles under [`hermes-agent-railway/skills/`](./skills/) are copied into `/data/skills` each start. Operators who expect **all** upstream stock skills mirrored should sync them manually or adjust the deployment.
-- Hermes Agent is installed from upstream `NousResearch/hermes-agent` (`ARG HERMES_REF=main`). Override with any valid branch, tag, or SHA.
-- Hermes WebUI is pinned to a specific tag (`ARG HERMES_WEBUI_REF=v0.50.278`). Override to upgrade.
+- Hermes Agent is installed from upstream `NousResearch/hermes-agent` (`ARG HERMES_REF=v2026.6.5`). Override with any valid branch, tag, or SHA.
+- Hermes WebUI is pinned to a specific tag (`ARG HERMES_WEBUI_REF=v0.51.303`). Override to upgrade.
 - `/data` stores config, `.env`, sessions, memories, skills, workspace files, logs, and WebUI state.
