@@ -23,6 +23,7 @@ from .proxy import (
     PROXY_METHODS,
     _filter_response_headers,
     filter_upstream_request_headers,
+    no_cookie_jar,
 )
 
 
@@ -101,6 +102,7 @@ async def _ensure_dashboard_client() -> httpx.AsyncClient:
             base_url=DASHBOARD_BASE_URL,
             timeout=httpx.Timeout(connect=5.0, read=None, write=None, pool=5.0),
             follow_redirects=False,
+            cookies=no_cookie_jar(),
         )
     return _dashboard_client
 

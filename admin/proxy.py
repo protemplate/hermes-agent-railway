@@ -22,6 +22,7 @@ HTTP responses are streamed end-to-end (important for SSE chat).
 from __future__ import annotations
 
 import asyncio
+import http.cookiejar
 import json
 import os
 from pathlib import Path
@@ -191,6 +192,17 @@ def _filter_response_headers(headers) -> list[tuple[str, str]]:
     return [(k, v) for k, v in headers.items() if k.lower() not in DROPPED_RESPONSE_HEADERS]
 
 
+def no_cookie_jar() -> http.cookiejar.CookieJar:
+    """A jar that never stores anything.
+
+    The upstream clients are shared by every visitor. httpx keeps cookies by
+    default, so a stored ``hermes_session`` would log every later visitor in as
+    whoever signed in last. Browsers carry their own cookies in the forwarded
+    headers; the shared client must not add any.
+    """
+    return http.cookiejar.CookieJar(policy=http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+
+
 async def _ensure_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
@@ -198,6 +210,7 @@ async def _ensure_client() -> httpx.AsyncClient:
             base_url=WEBUI_BASE_URL,
             timeout=httpx.Timeout(connect=5.0, read=None, write=None, pool=5.0),
             follow_redirects=False,
+            cookies=no_cookie_jar(),
         )
     return _client
 

@@ -59,6 +59,8 @@ Upstream Docker images run `tools/skills_sync.py` from the Hermes install direct
 
 - **Hermes Agent**: Installed from `https://github.com/NousResearch/hermes-agent` (pinned via `HERMES_REF=v2026.6.5`).
 - **Hermes WebUI**: Installed from `https://github.com/nesquena/hermes-webui` (pinned via `HERMES_WEBUI_REF=v0.51.310`).
+- **Prebuilt image**: the template deploys `ghcr.io/protemplate/hermes-agent-railway`, built by GitHub Actions from [protemplate/hermes-agent-railway](https://github.com/protemplate/hermes-agent-railway), so there is no build step on your account and a deploy takes a couple of minutes.
+- **Plan**: Hobby or higher is recommended. Hermes idles at about 200 MB, but its browser tool starts Chromium, which can push it past the Free plan's 0.5 GB per service.
 - **SearXNG**: Companion search service.
 - **Railway volume**: Mount at `/data` for persistent state.
 - **LLM provider**: OpenRouter, Anthropic, OpenAI, Gemini, z.ai, Kimi, MiniMax, Hugging Face, or a custom OpenAI-compatible endpoint.
