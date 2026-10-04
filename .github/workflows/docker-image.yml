@@ -31,10 +31,22 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=sha
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      # Railway's Trial and Free plans reject images over 4 GB, so keep a margin.
+      - name: Check image size
+        run: |
+          image="ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+          docker pull -q "$image"
+          size=$(docker image inspect --format '{{.Size}}' "$image")
+          echo "Unpacked image size: $((size / 1000000)) MB"
+          if [ "$size" -gt 3800000000 ]; then
+            echo "::error::Image is $((size / 1000000)) MB, over the 3800 MB budget (Railway Trial and Free plans cap images at 4 GB)"
+            exit 1
+          fi
