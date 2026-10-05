@@ -9,6 +9,8 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/hermes/.venv/bin:/data/.local/bin:${PATH}" \
     PYTHONPATH="/opt/hermes-railway:/opt/hermes:/opt/hermes-webui"
 
+# The second group is everyday tools the agent's shell and user skills may call. They came
+# with the full python base image this used to build on, so keep them for existing setups.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       build-essential \
@@ -27,7 +29,15 @@ RUN apt-get update && \
       python3 \
       python3-dev \
       ripgrep \
-      tini && \
+      tini \
+      file \
+      gnupg \
+      imagemagick \
+      mercurial \
+      pkg-config \
+      subversion \
+      unzip \
+      wget && \
     rm -rf /var/lib/apt/lists/*
 
 # Railway's Trial and Free plans reject images over 4 GB. Keep this image well under it:
